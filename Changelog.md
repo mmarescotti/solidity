@@ -16,6 +16,7 @@ Breaking Changes:
    ``sizeof``, ``supports``, ``typedef`` and ``unchecked``.
  * General: Remove assembly instruction aliases ``sha3`` and ``suicide``
  * Parser: Disallow trailing dots that are not followed by a number.
+ * Parser: Remove ``constant`` as function state mutability modifer.
  * Type Checker: Disallow arithmetic operations for boolean variables.
  * Type Checker: Disallow conversions between ``bytesX`` and ``uintY`` of different size.
  * Remove obsolete ``std`` directory from the Solidity repository. This means accessing ``https://github.com/ethereum/soldity/blob/develop/std/*.sol`` (or ``https://github.com/ethereum/solidity/std/*.sol`` in Remix) will not be possible.

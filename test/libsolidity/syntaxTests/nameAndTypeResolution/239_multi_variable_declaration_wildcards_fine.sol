@@ -3,10 +3,10 @@ contract C {
     function two() public returns (uint, uint);
     function none();
     function f() public {
-        var (a,) = three();
-        var (b,c,) = two();
-        var (,d) = three();
-        var (,e,g) = two();
+        (uint a,) = three();
+        (uint b, uint c,) = two();
+        (,uint d) = three();
+        (,uint e, uint g) = two();
         var (,,) = three();
         var () = none();
         a;b;c;d;e;g;

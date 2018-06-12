@@ -1,11 +1,11 @@
 contract C {
     function f() public { }
     function g() public {
-        var (x,) = (f(), f());
+        // FIXME: does this test still make sense? (void -> "uint")
+        (uint x,) = (f(), f());
     }
 }
 // ----
-// Warning: (80-81): Use of the "var" keyword is deprecated.
-// Warning: (87-90): Tuple component cannot be empty.
-// Warning: (92-95): Tuple component cannot be empty.
-// TypeError: (80-81): Cannot declare variable with void (empty tuple) type.
+// Warning: (156-159): Tuple component cannot be empty.
+// Warning: (161-164): Tuple component cannot be empty.
+// TypeError: (143-165): Type tuple() is not implicitly convertible to expected type uint256.

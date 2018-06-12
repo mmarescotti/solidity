@@ -3,7 +3,7 @@ contract C {
     using D for D.s;
     D.s x;
     function f(uint a) public returns (uint) {
-        var g = x.mul;
+        function (D.s storage, uint) returns (uint) g = x.mul;
         return g({x: a});
     }
 }

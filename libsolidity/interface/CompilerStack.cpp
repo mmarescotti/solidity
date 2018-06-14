@@ -41,6 +41,7 @@
 #include <libsolidity/analysis/ViewPureChecker.h>
 #include <libsolidity/codegen/Compiler.h>
 #include <libsolidity/formal/SMTChecker.h>
+#include <libsolidity/formal/SMTGas.h>
 #include <libsolidity/interface/ABI.h>
 #include <libsolidity/interface/Natspec.h>
 #include <libsolidity/interface/GasEstimator.h>
@@ -263,6 +264,15 @@ bool CompilerStack::analyze()
 			SMTChecker smtChecker(m_errorReporter, m_smtQuery);
 			for (Source const* source: m_sourceOrder)
 				smtChecker.analyze(*source->ast);
+		}
+
+		if (noErrors)
+		{
+			auto scannerFromSourceName = [&](string const& _s) -> Scanner const& { return scanner(_s); };
+			SMTGas smtGas(m_errorReporter, m_smtQuery, scannerFromSourceName);
+			for (Source const* source: m_sourceOrder) {
+				smtGas.analyze(*source->ast);
+			}
 		}
 	}
 	catch(FatalError const&)

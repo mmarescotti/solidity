@@ -146,13 +146,13 @@ string SMTLib2Interface::checkSatAndGetValuesCommand(vector<Expression> const& _
 		{
 			auto const& e = _expressionsToEvaluate.at(i);
 			solAssert(e.sort == Sort::Int || e.sort == Sort::Bool, "Invalid sort for expression to evaluate.");
-			command += "(declare-const |EVALEXPR_" + to_string(i) + "| " + (e.sort == Sort::Int ? "Int" : "Bool") + "\n";
-			command += "(assert (= |EVALEXPR_" + to_string(i) + "| " + toSExpr(e) + "))\n";
+			command += "(declare-const |EVALEXPR_" + ::to_string(i) + "| " + (e.sort == Sort::Int ? "Int" : "Bool") + "\n";
+			command += "(assert (= |EVALEXPR_" + ::to_string(i) + "| " + toSExpr(e) + "))\n";
 		}
 		command += "(check-sat)\n";
 		command += "(get-value (";
 		for (size_t i = 0; i < _expressionsToEvaluate.size(); i++)
-			command += "|EVALEXPR_" + to_string(i) + "| ";
+			command += "|EVALEXPR_" + ::to_string(i) + "| ";
 		command += "))\n";
 	}
 

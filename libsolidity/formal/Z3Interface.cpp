@@ -48,6 +48,13 @@ void Z3Interface::pop()
 	m_solver.pop();
 }
 
+std::string Z3Interface::to_string()
+{
+	std::ostringstream ss;
+	ss << m_solver;
+	return ss.str();
+}
+
 Expression Z3Interface::newFunction(string _name, Sort _domain, Sort _codomain)
 {
 	m_functions.insert({_name, m_context.function(_name.c_str(), z3Sort(_domain), z3Sort(_codomain))});

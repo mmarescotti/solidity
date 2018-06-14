@@ -199,6 +199,8 @@ public:
 	virtual void push() = 0;
 	virtual void pop() = 0;
 
+	virtual std::string to_string() = 0;
+
 	virtual Expression newFunction(std::string _name, Sort _domain, Sort _codomain)
 	{
 		solAssert(_domain == Sort::Int, "Function sort not supported.");

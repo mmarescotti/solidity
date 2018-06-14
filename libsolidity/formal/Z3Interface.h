@@ -40,6 +40,8 @@ public:
 	void push() override;
 	void pop() override;
 
+	std::string to_string() override;
+
 	Expression newFunction(std::string _name, Sort _domain, Sort _codomain) override;
 	Expression newInteger(std::string _name) override;
 	Expression newBool(std::string _name) override;

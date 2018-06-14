@@ -678,7 +678,7 @@ string FixedPointType::toString(bool) const
 bigint FixedPointType::maxIntegerValue() const
 {
 	bigint maxValue = (bigint(1) << (m_totalBits - (isSigned() ? 1 : 0))) - 1;
-	return maxValue / pow(bigint(10), m_fractionalDigits);
+	return maxValue / boost::multiprecision::pow(bigint(10), m_fractionalDigits);
 }
 
 bigint FixedPointType::minIntegerValue() const
@@ -686,7 +686,7 @@ bigint FixedPointType::minIntegerValue() const
 	if (isSigned())
 	{
 		bigint minValue = -(bigint(1) << (m_totalBits - (isSigned() ? 1 : 0)));
-		return minValue / pow(bigint(10), m_fractionalDigits);
+		return minValue / boost::multiprecision::pow(bigint(10), m_fractionalDigits);
 	}
 	else
 		return bigint(0);
@@ -1002,7 +1002,6 @@ TypePointer RationalNumberType::binaryOperatorResult(Token::Value _operator, Typ
 			break;
 		case Token::Exp:
 		{
-			using boost::multiprecision::pow;
 			if (other.isFractional())
 				return TypePointer();
 			solAssert(other.m_value.denominator() == 1, "");
@@ -1036,7 +1035,7 @@ TypePointer RationalNumberType::binaryOperatorResult(Token::Value _operator, Typ
 					else if (_base == -1)
 						return 1 - 2 * int(_exponent & 1);
 					else
-						return pow(_base, _exponent);
+						return boost::multiprecision::pow(_base, _exponent);
 				};
 
 				bigint numerator = optimizedPow(m_value.numerator(), absExp);
@@ -1052,7 +1051,6 @@ TypePointer RationalNumberType::binaryOperatorResult(Token::Value _operator, Typ
 		}
 		case Token::SHL:
 		{
-			using boost::multiprecision::pow;
 			if (fractional)
 				return TypePointer();
 			else if (other.m_value < 0)
@@ -1066,7 +1064,7 @@ TypePointer RationalNumberType::binaryOperatorResult(Token::Value _operator, Typ
 				uint32_t exponent = other.m_value.numerator().convert_to<uint32_t>();
 				if (!fitsPrecisionBase2(abs(m_value.numerator()), exponent))
 					return TypePointer();
-				value = m_value.numerator() * pow(bigint(2), exponent);
+				value = m_value.numerator() * boost::multiprecision::pow(bigint(2), exponent);
 			}
 			break;
 		}
@@ -1074,7 +1072,6 @@ TypePointer RationalNumberType::binaryOperatorResult(Token::Value _operator, Typ
 		//       determines the resulting type and the type of shift (SAR or SHR).
 		case Token::SAR:
 		{
-			namespace mp = boost::multiprecision;
 			if (fractional)
 				return TypePointer();
 			else if (other.m_value < 0)
@@ -1086,10 +1083,22 @@ TypePointer RationalNumberType::binaryOperatorResult(Token::Value _operator, Typ
 			else
 			{
 				uint32_t exponent = other.m_value.numerator().convert_to<uint32_t>();
-				if (exponent > mostSignificantBit(mp::abs(m_value.numerator())))
-					value = 0;
+				if (exponent > mostSignificantBit(boost::multiprecision::abs(m_value.numerator())))
+					value = m_value.numerator() < 0 ? -1 : 0;
 				else
-					value = rational(m_value.numerator() / mp::pow(bigint(2), exponent), 1);
+				{
+					if (m_value.numerator() < 0)
+						// Add 1 to the negative value before dividing to get a result that is strictly too large,
+						// then subtract 1 afterwards to round towards negative infinity.
+						// This is the same algorithm as used in ExpressionCompiler::appendShiftOperatorCode(...).
+						// To see this note that for negative x, xor(x,all_ones) = (-x-1) and
+						// therefore xor(div(xor(x,all_ones), exp(2, shift_amount)), all_ones) is
+						// -(-x - 1) / 2^shift_amount - 1, which is the same as
+						// (x + 1) / 2^shift_amount - 1.
+						value = rational((m_value.numerator() + 1) / boost::multiprecision::pow(bigint(2), exponent) - bigint(1), 1);
+					else
+						value = rational(m_value.numerator() / boost::multiprecision::pow(bigint(2), exponent), 1);
+				}
 			}
 			break;
 		}
@@ -1154,7 +1163,7 @@ u256 RationalNumberType::literalValue(Literal const*) const
 		auto fixed = fixedPointType();
 		solAssert(fixed, "");
 		int fractionalDigits = fixed->fractionalDigits();
-		shiftedValue = m_value.numerator() * pow(bigint(10), fractionalDigits) / m_value.denominator();
+		shiftedValue = m_value.numerator() * boost::multiprecision::pow(bigint(10), fractionalDigits) / m_value.denominator();
 	}
 
 	// we ignore the literal and hope that the type was correctly determined
@@ -2529,6 +2538,7 @@ string FunctionType::richIdentifier() const
 	case Kind::AddMod: id += "addmod"; break;
 	case Kind::MulMod: id += "mulmod"; break;
 	case Kind::ArrayPush: id += "arraypush"; break;
+	case Kind::ArrayPop: id += "arraypop"; break;
 	case Kind::ByteArrayPush: id += "bytearraypush"; break;
 	case Kind::ObjectCreation: id += "objectcreation"; break;
 	case Kind::Assert: id += "assert"; break;
@@ -2683,6 +2693,7 @@ unsigned FunctionType::sizeOnStack() const
 	case Kind::BareDelegateCall:
 	case Kind::Internal:
 	case Kind::ArrayPush:
+	case Kind::ArrayPop:
 	case Kind::ByteArrayPush:
 		size = 1;
 		break;

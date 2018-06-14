@@ -37,10 +37,6 @@ FULLARGS="--optimize --ignore-missing --combined-json abi,asm,ast,bin,bin-runtim
 echo "Checking that the bug list is up to date..."
 "$REPO_ROOT"/scripts/update_bugs_by_version.py
 
-echo "Checking that StandardToken.sol, owned.sol and mortal.sol produce bytecode..."
-output=$("$REPO_ROOT"/build/solc/solc --bin "$REPO_ROOT"/std/*.sol 2>/dev/null | grep "ffff" | wc -l)
-test "${output//[[:blank:]]/}" = "3"
-
 function printTask() { echo "$(tput bold)$(tput setaf 2)$1$(tput sgr0)"; }
 
 function printError() { echo "$(tput setaf 1)$1$(tput sgr0)"; }
@@ -113,14 +109,6 @@ do
 done
 )
 
-printTask "Compiling all files in std and examples..."
-
-for f in "$REPO_ROOT"/std/*.sol
-do
-    echo "$f"
-    compileWithoutWarning "$f"
-done
-
 printTask "Compiling all examples from the documentation..."
 TMPDIR=$(mktemp -d)
 (
@@ -160,7 +148,7 @@ rm -rf "$TMPDIR"
 
 printTask "Testing assemble, yul, strict-assembly..."
 echo '{}' | "$SOLC" - --assemble &>/dev/null
-echo '{}' | "$SOLC" - --julia &>/dev/null
+echo '{}' | "$SOLC" - --yul &>/dev/null
 echo '{}' | "$SOLC" - --strict-assembly &>/dev/null
 
 printTask "Testing standard input..."

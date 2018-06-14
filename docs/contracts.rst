@@ -194,10 +194,10 @@ In the following example, ``D``, can call ``c.getData()`` to retrieve the value 
     contract C {
         uint private data;
 
-        function f(uint a) private returns(uint b) { return a + 1; }
+        function f(uint a) private pure returns(uint b) { return a + 1; }
         function setData(uint a) public { data = a; }
-        function getData() public returns(uint) { return data; }
-        function compute(uint a, uint b) internal returns (uint) { return a+b; }
+        function getData() public view returns(uint) { return data; }
+        function compute(uint a, uint b) internal pure returns (uint) { return a + b; }
     }
 
     contract D {
@@ -742,7 +742,7 @@ All non-indexed arguments will be stored in the data part of the log.
 
 ::
 
-    pragma solidity ^0.4.0;
+    pragma solidity ^0.4.21;
 
     contract ClientReceipt {
         event Deposit(
@@ -774,7 +774,7 @@ The use in the JavaScript API would be as follows:
     // watch for changes
     event.watch(function(error, result){
         // result will contain various information
-        // including the argumets given to the `Deposit`
+        // including the arguments given to the `Deposit`
         // call.
         if (!error)
             console.log(result);

@@ -261,9 +261,9 @@ bool CompilerStack::analyze()
 
 		if (noErrors)
 		{
-			SMTChecker smtChecker(m_errorReporter, m_smtQuery);
-			for (Source const* source: m_sourceOrder)
-				smtChecker.analyze(*source->ast);
+//			SMTChecker smtChecker(m_errorReporter, m_smtQuery);
+//			for (Source const* source: m_sourceOrder)
+//				smtChecker.analyze(*source->ast);
 		}
 
 		if (noErrors)

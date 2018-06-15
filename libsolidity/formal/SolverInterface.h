@@ -85,72 +85,73 @@ public:
 		return operatorsArity.count(name) && operatorsArity.at(name) == arguments.size();
 	}
 
-	static Expression ite(Expression _condition, Expression _trueValue, Expression _falseValue)
+	static Expression const ite(Expression const &_condition,
+								Expression const &_trueValue,
+								Expression const &_falseValue)
 	{
-		solAssert(_trueValue.sort == _falseValue.sort, "");
 		return Expression("ite", std::vector<Expression>{
-			std::move(_condition), std::move(_trueValue), std::move(_falseValue)
+			_condition, _trueValue, _falseValue
 		}, _trueValue.sort);
 	}
 
-	static Expression implies(Expression _a, Expression _b)
+	static Expression const implies(Expression const &_a, Expression const &_b)
 	{
-		return !std::move(_a) || std::move(_b);
+		return !_a || _b;
 	}
 
-	friend Expression operator!(Expression _a)
+	friend Expression const operator!(Expression const &_a)
 	{
-		return Expression("not", std::move(_a), Sort::Bool);
+		return Expression("not", _a, Sort::Bool);
 	}
-	friend Expression operator&&(Expression _a, Expression _b)
+	friend Expression const operator&&(Expression const &_a, Expression const &_b)
 	{
-		return Expression("and", std::move(_a), std::move(_b), Sort::Bool);
+		return Expression("and", _a, _b, Sort::Bool);
 	}
-	friend Expression operator||(Expression _a, Expression _b)
+	friend Expression const operator||(Expression const &_a, Expression const &_b)
 	{
-		return Expression("or", std::move(_a), std::move(_b), Sort::Bool);
+		return Expression("or", _a, _b, Sort::Bool);
 	}
-	friend Expression operator==(Expression _a, Expression _b)
+	friend Expression const operator==(Expression const &_a, Expression const &_b)
 	{
-		return Expression("=", std::move(_a), std::move(_b), Sort::Bool);
+		return Expression("=", _a, _b, Sort::Bool);
 	}
-	friend Expression operator!=(Expression _a, Expression _b)
+	friend Expression const operator!=(Expression const &_a, Expression const &_b)
 	{
-		return !(std::move(_a) == std::move(_b));
+		return !(_a == _b);
 	}
-	friend Expression operator<(Expression _a, Expression _b)
+	friend Expression const operator<(Expression const &_a, Expression const &_b)
 	{
-		return Expression("<", std::move(_a), std::move(_b), Sort::Bool);
+		return Expression("<", _a, _b, Sort::Bool);
 	}
-	friend Expression operator<=(Expression _a, Expression _b)
+	friend Expression const operator<=(Expression const &_a, Expression const &_b)
 	{
-		return Expression("<=", std::move(_a), std::move(_b), Sort::Bool);
+		return Expression("<=", _a, _b, Sort::Bool);
 	}
-	friend Expression operator>(Expression _a, Expression _b)
+	friend Expression const operator>(Expression const &_a, Expression const &_b)
 	{
-		return Expression(">", std::move(_a), std::move(_b), Sort::Bool);
+		return Expression(">", _a, _b, Sort::Bool);
 	}
-	friend Expression operator>=(Expression _a, Expression _b)
+	friend Expression const operator>=(Expression const &_a, Expression const &_b)
 	{
-		return Expression(">=", std::move(_a), std::move(_b), Sort::Bool);
+		return Expression(">=", _a, _b, Sort::Bool);
 	}
-	friend Expression operator+(Expression _a, Expression _b)
+	friend Expression const operator+(Expression const &_a, Expression const &_b)
 	{
-		return Expression("+", std::move(_a), std::move(_b), Sort::Int);
+		return Expression("+", _a, _b, Sort::Int);
 	}
-	friend Expression operator-(Expression _a, Expression _b)
+	friend Expression const operator-(Expression const &_a, Expression const &_b)
 	{
-		return Expression("-", std::move(_a), std::move(_b), Sort::Int);
+		return Expression("-", _a, _b, Sort::Int);
 	}
-	friend Expression operator*(Expression _a, Expression _b)
+	friend Expression const operator*(Expression const &_a, Expression const &_b)
 	{
-		return Expression("*", std::move(_a), std::move(_b), Sort::Int);
+		return Expression("*", _a, _b, Sort::Int);
 	}
-	friend Expression operator/(Expression _a, Expression _b)
+	friend Expression const operator/(Expression const &_a, Expression const &_b)
 	{
-		return Expression("/", std::move(_a), std::move(_b), Sort::Int);
+		return Expression("/", _a, _b, Sort::Int);
 	}
-	Expression operator()(Expression _a) const
+	Expression const operator()(Expression const &_a) const
 	{
 		solAssert(
 			arguments.empty(),
@@ -173,19 +174,19 @@ public:
 
 	std::string const name;
 	std::vector<Expression> const arguments;
-	Sort sort;
+	Sort const sort;
 
 private:
 	/// Manual constructor, should only be used by SolverInterface and this class itself.
-	Expression(std::string _name, std::vector<Expression> _arguments, Sort _sort):
-		name(std::move(_name)), arguments(std::move(_arguments)), sort(_sort) {}
+	Expression(std::string const &_name, std::vector<Expression> const &_arguments, Sort _sort):
+		name(_name), arguments(_arguments), sort(_sort) {}
 
-	explicit Expression(std::string _name, Sort _sort):
-		Expression(std::move(_name), std::vector<Expression>{}, _sort) {}
-	Expression(std::string _name, Expression _arg, Sort _sort):
-		Expression(std::move(_name), std::vector<Expression>{std::move(_arg)}, _sort) {}
-	Expression(std::string _name, Expression _arg1, Expression _arg2, Sort _sort):
-		Expression(std::move(_name), std::vector<Expression>{std::move(_arg1), std::move(_arg2)}, _sort) {}
+	explicit Expression(std::string const &_name, Sort _sort):
+		Expression(_name, std::vector<Expression>{}, _sort) {}
+	Expression(std::string const &_name, Expression const &_arg, Sort _sort):
+		Expression(_name, std::vector<Expression>{_arg}, _sort) {}
+	Expression(std::string const &_name, Expression const &_arg1, Expression const &_arg2, Sort _sort):
+		Expression(_name, {_arg1, _arg2}, _sort) {}
 };
 
 DEV_SIMPLE_EXCEPTION(SolverError);
@@ -193,6 +194,11 @@ DEV_SIMPLE_EXCEPTION(SolverError);
 class SolverInterface
 {
 public:
+	SolverInterface()= default;
+//	SolverInterface(SolverInterface const &_s){
+//        m_declarations = _s.m_declarations;
+//        m_assertions = _s.m_assertions;
+//    }
 	virtual ~SolverInterface() = default;
 	virtual void reset() = 0;
 
@@ -201,38 +207,49 @@ public:
 
 	virtual std::string to_string() = 0;
 
-	virtual Expression newFunction(std::string _name, Sort _domain, Sort _codomain)
+    virtual Expression const newFunction(std::string _name, Sort _domain, Sort _codomain)
 	{
 		solAssert(_domain == Sort::Int, "Function sort not supported.");
 		// Subclasses should do something here
 		switch (_codomain)
 		{
 		case Sort::Int:
-			return Expression(std::move(_name), {}, Sort::IntIntFun);
+			m_declarations.emplace_back(Expression(std::move(_name), {}, Sort::IntIntFun));
+			break;
 		case Sort::Bool:
-			return Expression(std::move(_name), {}, Sort::IntBoolFun);
+			m_declarations.emplace_back(Expression(std::move(_name), {}, Sort::IntBoolFun));
+			break;
 		default:
 			solAssert(false, "Function sort not supported.");
 			break;
 		}
+        return m_declarations.back();
 	}
-	virtual Expression newInteger(std::string _name)
+    virtual Expression const newInteger(std::string _name)
 	{
 		// Subclasses should do something here
-		return Expression(std::move(_name), {}, Sort::Int);
+		m_declarations.emplace_back(Expression(std::move(_name), {}, Sort::Int));
+		return m_declarations.back();
 	}
-	virtual Expression newBool(std::string _name)
+    virtual Expression const newBool(std::string _name)
 	{
 		// Subclasses should do something here
-		return Expression(std::move(_name), {}, Sort::Bool);
+		m_declarations.emplace_back(Expression(std::move(_name), {}, Sort::Bool));
+		return m_declarations.back();
 	}
 
-	virtual void addAssertion(Expression const& _expr) = 0;
+    virtual void addAssertion(Expression const& _expr){
+		m_assertions.emplace_back(_expr);
+	}
 
 	/// Checks for satisfiability, evaluates the expressions if a model
 	/// is available. Throws SMTSolverError on error.
 	virtual std::pair<CheckResult, std::vector<std::string>>
 	check(std::vector<Expression> const& _expressionsToEvaluate) = 0;
+
+protected:
+	std::vector<Expression> m_declarations;
+	std::vector<Expression> m_assertions;
 };
 
 

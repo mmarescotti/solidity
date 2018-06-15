@@ -20,7 +20,6 @@ namespace dev
 namespace solidity
 {
 
-class VariableUsage;
 class ErrorReporter;
 
 class SMTGas: private ASTConstVisitor
@@ -136,7 +135,6 @@ private:
 	void addPathImpliedExpression(smt::Expression const& _e);
 
 	std::shared_ptr<smt::SolverInterface> m_interface;
-	std::shared_ptr<VariableUsage> m_variableUsage;
 	bool m_loopExecutionHappened = false;
 	std::map<Expression const*, smt::Expression> m_expressions;
 	std::map<Expression const*, Declaration const*> m_expression2function;

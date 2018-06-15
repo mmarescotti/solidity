@@ -30,7 +30,6 @@
 #include <libsolidity/formal/SSAVariable.h>
 #include <libsolidity/formal/FSSA.h>
 #include <libsolidity/formal/SymbolicIntVariable.h>
-#include <libsolidity/formal/VariableUsage.h>
 
 #include <libsolidity/interface/ErrorReporter.h>
 
@@ -56,7 +55,6 @@ m_interface(make_shared<smt::SMTLib2Interface>(_readFileCallback)),
 }
 
 void SMTGas::analyze(SourceUnit const &_source) {
-    m_variableUsage = make_shared<VariableUsage>(_source);
     if (_source.annotation().experimentalFeatures.count(ExperimentalFeature::SMTGas))
         _source.accept(*this);
 }
@@ -114,19 +112,19 @@ bool SMTGas::visit(IfStatement const &_node) {
     _node.condition().accept(*this);
     return false;
 
-    auto countersEndTrue = visitBranch(_node.trueStatement(), expr(_node.condition()));
-    vector<Declaration const *> touchedVariables = m_variableUsage->touchedVariables(_node.trueStatement());
-    decltype(countersEndTrue) countersEndFalse;
-    if (_node.falseStatement()) {
-        countersEndFalse = visitBranch(*_node.falseStatement(), !expr(_node.condition()));
-        touchedVariables += m_variableUsage->touchedVariables(*_node.falseStatement());
-    } else {
-        countersEndFalse = m_variables;
-    }
-
-    mergeVariables(touchedVariables, expr(_node.condition()), countersEndTrue, countersEndFalse);
-
-    return false;
+//    auto countersEndTrue = visitBranch(_node.trueStatement(), expr(_node.condition()));
+//    vector<VariableDeclaration const*> touchedVariables = m_variableUsage->touchedVariables(_node.trueStatement());
+//    decltype(countersEndTrue) countersEndFalse;
+//    if (_node.falseStatement()) {
+//        countersEndFalse = visitBranch(*_node.falseStatement(), !expr(_node.condition()));
+//        touchedVariables += m_variableUsage->touchedVariables(*_node.falseStatement());
+//    } else {
+//        countersEndFalse = m_variables;
+//    }
+//
+//    //mergeVariables(touchedVariables, expr(_node.condition()), countersEndTrue, countersEndFalse);
+//
+//    return false;
 }
 
 // TODO

@@ -23,7 +23,7 @@ using namespace dev::solidity;
 FSSA::Statement::Statement(smt::Expression const &_condition,
                            smt::Expression const &_expression,
                            SourceLocation const &_location) :
-        m_condition(_condition), m_expression(_expression), m_location(_location) {}
+        m_expression(_expression), m_condition(_condition), m_location(_location) {}
 
 smt::Expression const FSSA::Statement::expr() const {
     return smt::Expression::implies(m_condition, m_expression);
@@ -110,7 +110,7 @@ void FSSA::createExpr(Expression const &_e) {
     solAssert(_e.annotation().type, "");
     switch (_e.annotation().type->category()) {
         case Type::Category::RationalNumber: {
-            if (auto rational = dynamic_cast<RationalNumberType const *>(_e.annotation().type.get()))
+            if (auto const &rational = dynamic_cast<RationalNumberType const *>(_e.annotation().type.get()))
                 solAssert(!rational->isFractional(), "");
             m_expressions.emplace(&_e, m_interface->newInteger(uniqueSymbol(_e)));
             break;
@@ -140,7 +140,7 @@ void FSSA::createExpr(UnaryOperation const &_op) {
 
             solAssert(SSAVariable::isInteger(_op.annotation().type->category()), "");
             solAssert(_op.subExpression().annotation().lValueRequested, "");
-            if (auto identifier = dynamic_cast<Identifier const *>(&_op.subExpression())) {
+            if (auto const &identifier = dynamic_cast<Identifier const *>(&_op.subExpression())) {
                 Declaration const *decl = identifier->annotation().referencedDeclaration;
                 if (auto v = getVariable(*decl)) {
                     auto innerValue = (*v)();
@@ -231,7 +231,7 @@ void FSSA::assignment(Declaration const &_variable, smt::Expression const &_valu
     }
 }
 
-smt::Expression division(smt::Expression _left, smt::Expression _right, IntegerType const &_type) {
+smt::Expression division(smt::Expression const &_left, smt::Expression const &_right, IntegerType const &_type) {
     // Signed division in SMTLIB2 rounds differently for negative division.
     if (_type.isSigned())
         return (smt::Expression::ite(
@@ -251,7 +251,7 @@ void FSSA::arithmeticOperation(BinaryOperation const &_op) {
         case Token::Div: {
             solAssert(_op.annotation().commonType, "");
             solAssert(_op.annotation().commonType->category() == Type::Category::Integer, "");
-            auto const intType = dynamic_cast<IntegerType const &>(*_op.annotation().commonType);
+            auto const &intType = dynamic_cast<IntegerType const &>(*_op.annotation().commonType);
             smt::Expression left(expr(_op.leftExpression()));
             smt::Expression right(expr(_op.rightExpression()));
             Token::Value op = _op.getOperator();
@@ -276,7 +276,6 @@ void FSSA::arithmeticOperation(BinaryOperation const &_op) {
             );
     }
 }
-
 
 void FSSA::compareOperation(BinaryOperation const &_op) {
     solAssert(_op.annotation().commonType, "");

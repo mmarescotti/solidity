@@ -42,9 +42,9 @@ public:
 
 	std::string to_string() override;
 
-	Expression newFunction(std::string _name, Sort _domain, Sort _codomain) override;
-	Expression newInteger(std::string _name) override;
-	Expression newBool(std::string _name) override;
+	Expression const newFunction(std::string _name, Sort _domain, Sort _codomain) override;
+	Expression const newInteger(std::string _name) override;
+	Expression const newBool(std::string _name) override;
 
 	void addAssertion(Expression const& _expr) override;
 	std::pair<CheckResult, std::vector<std::string>> check(std::vector<Expression> const& _expressionsToEvaluate) override;

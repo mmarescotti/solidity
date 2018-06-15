@@ -55,19 +55,19 @@ std::string Z3Interface::to_string()
 	return ss.str();
 }
 
-Expression Z3Interface::newFunction(string _name, Sort _domain, Sort _codomain)
+Expression const Z3Interface::newFunction(string _name, Sort _domain, Sort _codomain)
 {
 	m_functions.insert({_name, m_context.function(_name.c_str(), z3Sort(_domain), z3Sort(_codomain))});
 	return SolverInterface::newFunction(move(_name), _domain, _codomain);
 }
 
-Expression Z3Interface::newInteger(string _name)
+Expression const Z3Interface::newInteger(string _name)
 {
 	m_constants.insert({_name, m_context.int_const(_name.c_str())});
 	return SolverInterface::newInteger(move(_name));
 }
 
-Expression Z3Interface::newBool(string _name)
+Expression const Z3Interface::newBool(string _name)
 {
 	m_constants.insert({_name, m_context.bool_const(_name.c_str())});
 	return SolverInterface::newBool(std::move(_name));
@@ -76,6 +76,7 @@ Expression Z3Interface::newBool(string _name)
 void Z3Interface::addAssertion(Expression const& _expr)
 {
 	m_solver.add(toZ3Expr(_expr));
+	return SolverInterface::addAssertion(_expr);
 }
 
 pair<CheckResult, vector<string>> Z3Interface::check(vector<Expression> const& _expressionsToEvaluate)

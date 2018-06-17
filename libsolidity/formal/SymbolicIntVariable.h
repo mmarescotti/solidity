@@ -37,17 +37,14 @@ public:
 		smt::SolverInterface& _interface
 	);
 
-	/// Sets the var to 0.
-	void setZeroValue(int _seq);
-	/// Sets the variable to the full valid value range.
-	void setUnknownValue(int _seq);
-
 	static smt::Expression minValue(IntegerType const& _t);
 	static smt::Expression maxValue(IntegerType const& _t);
 
 protected:
 	smt::Expression valueAtSequence(int _seq) const;
 };
+
+
 
 }
 }

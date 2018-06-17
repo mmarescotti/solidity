@@ -37,8 +37,7 @@ public:
 	/// @param _decl Used to determine the type and forwarded to the symbolic var.
 	/// @param _interface Forwarded to the symbolic var such that it can give constraints to the solver.
 	SSAVariable(
-		Declaration const& _decl,
-		smt::SolverInterface& _interface
+		SymbolicVariable const
 	);
 
 	void resetIndex();

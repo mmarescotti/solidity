@@ -1,9 +1,10 @@
+// Author: Matteo Marescotti
+
 #pragma once
 
 #include <libsolidity/ast/AST.h>
-#include <libsolidity/formal/SSAVariable.h>
-#include <libsolidity/formal/SolverInterface.h>
 #include <libsolidity/interface/ErrorReporter.h>
+#include <libsolidity/formal/SymbolicIntVariable.h>
 
 
 namespace dev {
@@ -11,26 +12,31 @@ namespace dev {
         class FSSA {
             class Statement {
             public:
-                Statement(smt::Expression const &_condition,
-                          smt::Expression const &_expression,
-                          SourceLocation const &_location);
+                Statement(Formula const &_condition, Formula const &_expression, SourceLocation const &_location) :
+                        m_condition(_condition), m_expression(_expression), m_location(_location) {}
 
-                smt::Expression const expr() const;
+                virtual std::pair<std::set<std::string>, std::string> const sexpr(std::string const &_nonce = "") {
+                    if (m_condition.isTrue()) {
+                        return m_expression.sexpr(_nonce);
+                    } else {
+                        return Formula::implies(m_condition, m_expression).sexpr(_nonce);
+                    }
+                };
 
             protected:
-                smt::Expression const m_expression;
+                Formula const m_condition;
+                Formula const m_expression;
 
             private:
-                smt::Expression const m_condition;
                 SourceLocation const &m_location;
             };
 
-            class CallStatement : public Statement {
-            public:
-                CallStatement(smt::Expression const &_condition,
-                              smt::Expression const &_return,
-                              FunctionDefinition const &_function);
-            };
+//            class CallStatement : public Statement {
+//            public:
+//                CallStatement(smt::Expression const &_condition,
+//                              smt::Expression const &_return,
+//                              FunctionDefinition const &_function);
+//            };
 
         public:
             FSSA(ContractDefinition const &, FunctionDefinition const &, ErrorReporter &);
@@ -47,7 +53,7 @@ namespace dev {
 
             template<typename T>
             void defineExpr(Expression const &_e, T t) {
-                defineExpr(_e, smt::Expression(t));
+                defineExpr(_e, Formula(t));
             }
 
             void defineExpr(Expression const &_e, Declaration const &_variable);
@@ -59,14 +65,14 @@ namespace dev {
             std::string to_smtlib();
 
         private:
-            SSAVariable *createVariable(VariableDeclaration const &_varDecl,
-                                        std::map<Declaration const *, SSAVariable> &_vec);
+            SymbolicVariable *createVariable(VariableDeclaration const &_varDecl,
+                                             std::map<Declaration const *, SymbolicVariable> &_vec);
 
-            SSAVariable *getVariable(Declaration const &_decl);
+            SymbolicVariable *getVariable(Declaration const &_decl);
 
-            smt::Expression const &expr(Expression const &_e);
+            Formula const &expr(Expression const &_e);
 
-            void defineExpr(Expression const &_e, smt::Expression const &_value);
+            void defineExpr(Expression const &_e, Formula const &_value);
 
             void arithmeticOperation(BinaryOperation const &_op);
 
@@ -75,23 +81,23 @@ namespace dev {
             void booleanOperation(BinaryOperation const &_op);
 
             void assignment(Declaration const &_variable,
-                            smt::Expression const &_value,
+                            Formula const &_value,
                             SourceLocation const &_location);
 
-            smt::Expression const currentPathCondition();
+            Formula const currentPathCondition();
 
             void addStatement(Statement const &&_statement);
 
-            std::shared_ptr<smt::SolverInterface> m_interface;
+            //std::shared_ptr<smt::SolverInterface> m_interface;
             ContractDefinition const &m_contract;
             FunctionDefinition const &m_function;
             ErrorReporter &m_errorReporter;
-            std::map<Declaration const *, SSAVariable> m_stateVariables;
-            std::map<Declaration const *, SSAVariable> m_parameters;
-            std::map<Declaration const *, SSAVariable> m_locals;
-            std::map<Declaration const *, SSAVariable> m_returns;
-            std::map<Expression const *, smt::Expression> m_expressions;
-            std::vector<smt::Expression> m_pathConditions;
+            std::map<Declaration const *, SymbolicVariable> m_stateVariables;
+            std::map<Declaration const *, SymbolicVariable> m_parameters;
+            std::map<Declaration const *, SymbolicVariable> m_locals;
+            std::map<Declaration const *, SymbolicVariable> m_returns;
+            std::map<Expression const *, Formula> m_expressions;
+            std::vector<Formula> m_pathConditions;
             std::vector<Statement> m_statements;
         };
     }

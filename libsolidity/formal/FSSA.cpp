@@ -20,58 +20,42 @@ using namespace dev;
 using namespace dev::solidity;
 
 
-FSSA::Statement::Statement(smt::Expression const &_condition,
-                           smt::Expression const &_expression,
-                           SourceLocation const &_location) :
-        m_expression(_expression), m_condition(_condition), m_location(_location) {}
-
-smt::Expression const FSSA::Statement::expr() const {
-    return smt::Expression::implies(m_condition, m_expression);
-}
-
-
-FSSA::CallStatement::CallStatement(smt::Expression const &_condition,
-                                   smt::Expression const &_return,
-                                   FunctionDefinition const &_function) :
-        Statement(_condition, _return, _function.location()) {}
-
-
 FSSA::FSSA(ContractDefinition const &_contract, FunctionDefinition const &_function, ErrorReporter &_errorReporter) :
-#ifdef HAVE_Z3
-        m_interface(make_shared<smt::Z3Interface>()),
-#elif HAVE_CVC4
-m_interface(make_shared<smt::CVC4Interface>()),
-#else
-m_interface(make_shared<smt::SMTLib2Interface>(_readFileCallback)),
-#endif
+//#ifdef HAVE_Z3
+//        m_interface(make_shared<smt::Z3Interface>()),
+//#elif HAVE_CVC4
+//m_interface(make_shared<smt::CVC4Interface>()),
+//#else
+//m_interface(make_shared<smt::SMTLib2Interface>(_readFileCallback)),
+//#endif
         m_contract(_contract), m_function(_function), m_errorReporter(_errorReporter) {
-    SSAVariable *var;
+    SymbolicVariable *var;
 
     for (auto const &variable : _contract.stateVariables())
         if (variable->type()->isValueType() && (var = createVariable(*variable, m_stateVariables)))
-            var->setUnknownValue();
+            m_statements.emplace_back(Statement(Formula(true), (*var)().assertUnknown(), variable->location()));
 
     for (auto const &param: _function.parameters())
         if ((var = createVariable(*param, m_parameters)))
-            var->setUnknownValue();
+            m_statements.emplace_back(Statement(Formula(true), (*var)().assertUnknown(), param->location()));
 
     for (auto const &variable: _function.localVariables())
         if ((var = createVariable(*variable, m_locals)))
-            var->setZeroValue();
+            m_statements.emplace_back(Statement(Formula(true), (*var)().assertZero(), variable->location()));
 
     if (!_function.returnParameters().empty()) {
         for (auto const &retParam: _function.returnParameters())
             if ((var = createVariable(*retParam, m_returns)))
-                var->setZeroValue();
+                m_statements.emplace_back(Statement(Formula(true), (*var)().assertZero(), retParam->location()));
     }
     m_contract.type();
     m_function.type();
 }
 
-SSAVariable *FSSA::createVariable(VariableDeclaration const &_varDecl,
-                                  std::map<Declaration const *, SSAVariable> &_vec) {
-    if (SSAVariable::isSupportedType(_varDecl.type()->category())) {
-        auto i_b = _vec.emplace(&_varDecl, SSAVariable(_varDecl, *m_interface));
+SymbolicVariable *FSSA::createVariable(VariableDeclaration const &_varDecl,
+                                       std::map<Declaration const *, SymbolicVariable> &_vec) {
+    try {
+        auto i_b = _vec.emplace(&_varDecl, SymbolicVariable(_varDecl));
         if (i_b.second)
             return &i_b.first->second;
         else {
@@ -80,16 +64,16 @@ SSAVariable *FSSA::createVariable(VariableDeclaration const &_varDecl,
                     "Can't register variable."
             );
         }
-    } else {
-        m_errorReporter.warning(
+    } catch (Exception &ex) {
+        m_errorReporter.fatalParserError(
                 _varDecl.location(),
-                "Gas estimator does not yet support the type of this variable."
+                ex.what()
         );
     }
     return nullptr;
 }
 
-SSAVariable *FSSA::getVariable(Declaration const &_decl) {
+SymbolicVariable *FSSA::getVariable(Declaration const &_decl) {
     for (auto _map: {&m_stateVariables, &m_parameters, &m_locals, &m_returns}) {
         if (_map->count(&_decl)) {
             return &_map->at(&_decl);
@@ -98,7 +82,7 @@ SSAVariable *FSSA::getVariable(Declaration const &_decl) {
     return nullptr;
 }
 
-std::string uniqueSymbol(Expression const &_expr) {
+std::string const uniqueSymbol(Expression const &_expr) {
     return "expr_" + std::to_string(_expr.id());
 }
 
@@ -112,14 +96,14 @@ void FSSA::createExpr(Expression const &_e) {
         case Type::Category::RationalNumber: {
             if (auto const &rational = dynamic_cast<RationalNumberType const *>(_e.annotation().type.get()))
                 solAssert(!rational->isFractional(), "");
-            m_expressions.emplace(&_e, m_interface->newInteger(uniqueSymbol(_e)));
+            m_expressions.emplace(&_e, FormulaVariable(uniqueSymbol(_e), Sort::Int));
             break;
         }
         case Type::Category::Integer:
-            m_expressions.emplace(&_e, m_interface->newInteger(uniqueSymbol(_e)));
+            m_expressions.emplace(&_e, FormulaVariable(uniqueSymbol(_e), Sort::Int));
             break;
         case Type::Category::Bool:
-            m_expressions.emplace(&_e, m_interface->newBool(uniqueSymbol(_e)));
+            m_expressions.emplace(&_e, FormulaVariable(uniqueSymbol(_e), Sort::Bool));
             break;
         default:
             solUnimplementedAssert(false, "Type not implemented.");
@@ -191,7 +175,7 @@ void FSSA::createExpr(BinaryOperation const &_op) {
         );
 }
 
-smt::Expression const &FSSA::expr(Expression const &_e) {
+Formula const &FSSA::expr(Expression const &_e) {
     if (!m_expressions.count(&_e)) {
         m_errorReporter.warning(_e.location(), "Gas estimator internal error: Expression undefined for SMT solver.");
         createExpr(_e);
@@ -211,7 +195,7 @@ void FSSA::defineExpr(Expression const &_e, Declaration const &_variable) {
     }
 }
 
-void FSSA::defineExpr(Expression const &_e, smt::Expression const &_value) {
+void FSSA::defineExpr(Expression const &_e, Formula const &_value) {
     createExpr(_e);
     addStatement(Statement(currentPathCondition(), expr(_e) == _value, _e.location()));
 }
@@ -222,7 +206,7 @@ void FSSA::assignment(Declaration const &_variable,
     assignment(_variable, expr(_value), _location);
 }
 
-void FSSA::assignment(Declaration const &_variable, smt::Expression const &_value, SourceLocation const &_location) {
+void FSSA::assignment(Declaration const &_variable, Formula const &_value, SourceLocation const &_location) {
     if (auto v = getVariable(_variable)) {
         ++(*v);
         addStatement(Statement(currentPathCondition(), (*v)() == _value, _location));
@@ -231,13 +215,13 @@ void FSSA::assignment(Declaration const &_variable, smt::Expression const &_valu
     }
 }
 
-smt::Expression division(smt::Expression const &_left, smt::Expression const &_right, IntegerType const &_type) {
+Formula division(Formula const &_left, Formula const &_right, IntegerType const &_type) {
     // Signed division in SMTLIB2 rounds differently for negative division.
     if (_type.isSigned())
-        return (smt::Expression::ite(
+        return (Formula::ite(
                 _left >= 0,
-                smt::Expression::ite(_right >= 0, _left / _right, 0 - (_left / (0 - _right))),
-                smt::Expression::ite(_right >= 0, 0 - ((0 - _left) / _right), (0 - _left) / (0 - _right))
+                Formula::ite(_right >= 0, _left / _right, 0 - (_left / (0 - _right))),
+                Formula::ite(_right >= 0, 0 - ((0 - _left) / _right), (0 - _left) / (0 - _right))
         ));
     else
         return _left / _right;
@@ -252,10 +236,10 @@ void FSSA::arithmeticOperation(BinaryOperation const &_op) {
             solAssert(_op.annotation().commonType, "");
             solAssert(_op.annotation().commonType->category() == Type::Category::Integer, "");
             auto const &intType = dynamic_cast<IntegerType const &>(*_op.annotation().commonType);
-            smt::Expression left(expr(_op.leftExpression()));
-            smt::Expression right(expr(_op.rightExpression()));
+            Formula left(expr(_op.leftExpression()));
+            Formula right(expr(_op.rightExpression()));
             Token::Value op = _op.getOperator();
-            smt::Expression value(
+            Formula value(
                     op == Token::Add ? left + right :
                     op == Token::Sub ? left - right :
                     op == Token::Div ? division(left, right, intType) :
@@ -280,12 +264,12 @@ void FSSA::arithmeticOperation(BinaryOperation const &_op) {
 void FSSA::compareOperation(BinaryOperation const &_op) {
     solAssert(_op.annotation().commonType, "");
     if (SSAVariable::isSupportedType(_op.annotation().commonType->category())) {
-        smt::Expression left(expr(_op.leftExpression()));
-        smt::Expression right(expr(_op.rightExpression()));
+        Formula left(expr(_op.leftExpression()));
+        Formula right(expr(_op.rightExpression()));
         Token::Value op = _op.getOperator();
-        shared_ptr<smt::Expression> value;
+        shared_ptr<Formula> value;
         if (SSAVariable::isInteger(_op.annotation().commonType->category())) {
-            value = make_shared<smt::Expression>(
+            value = make_shared<Formula>(
                     op == Token::Equal ? (left == right) :
                     op == Token::NotEqual ? (left != right) :
                     op == Token::LessThan ? (left < right) :
@@ -297,7 +281,7 @@ void FSSA::compareOperation(BinaryOperation const &_op) {
         {
             solUnimplementedAssert(SSAVariable::isBool(_op.annotation().commonType->category()),
                                    "Operation not yet supported");
-            value = make_shared<smt::Expression>(
+            value = make_shared<Formula>(
                     op == Token::Equal ? (left == right) :
                     /*op == Token::NotEqual*/ (left != right)
             );
@@ -329,9 +313,9 @@ void FSSA::booleanOperation(BinaryOperation const &_op) {
         );
 }
 
-const smt::Expression smtTrue = smt::Expression(true);
+const Formula smtTrue = Formula(true);
 
-smt::Expression const FSSA::currentPathCondition() {
+Formula const FSSA::currentPathCondition() {
     if (m_pathConditions.empty())
         return smtTrue;
     return m_pathConditions.back();

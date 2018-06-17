@@ -1,66 +1,106 @@
-/*
-	This file is part of solidity.
-
-	solidity is free software: you can redistribute it and/or modify
-	it under the terms of the GNU General Public License as published by
-	the Free Software Foundation, either version 3 of the License, or
-	(at your option) any later version.
-
-	solidity is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU General Public License for more details.
-
-	You should have received a copy of the GNU General Public License
-	along with solidity.  If not, see <http://www.gnu.org/licenses/>.
-*/
+// Author: Matteo Marescotti
 
 #pragma once
 
-#include <libsolidity/formal/SolverInterface.h>
-
 #include <libsolidity/ast/AST.h>
+#include <libsolidity/formal/Formula.h>
 
-#include <memory>
+namespace dev {
+    namespace solidity {
 
-namespace dev
-{
-namespace solidity
-{
+        class Declaration;
 
-class Declaration;
+        struct Exception : public std::exception {
+            explicit Exception(std::string const &_s) noexcept : m_s(_s) {}
 
-/**
- * This class represents the symbolic version of a program variable.
- */
-class SymbolicVariable
-{
-public:
-	SymbolicVariable(
-		Declaration const& _decl,
-		smt::SolverInterface& _interface
-	);
-	virtual ~SymbolicVariable() = default;
+            const char *what() const throw() override { return m_s.c_str(); }
 
-	smt::Expression operator()(int _seq) const
-	{
-		return valueAtSequence(_seq);
-	}
+        private:
+            std::string const m_s;
+        };
 
-	std::string uniqueSymbol(int _seq) const;
 
-	/// Sets the var to the default value of its type.
-	virtual void setZeroValue(int _seq) = 0;
-	/// The unknown value is the full range of valid values,
-	/// and that's sub-type dependent.
-	virtual void setUnknownValue(int _seq) = 0;
+        class SymbolicVariable {
+            class SSA : public FormulaVariable {
+            public:
+                SSA(SymbolicVariable const &_var, uint _seq) :
+                        FormulaVariable(
+                                (
+                                        _var.m_declaration.name() + "-" +
+                                        std::to_string(_var.m_declaration.id()) + "_" +
+                                        std::to_string(_seq)
+                                ),
+                                getSort(_var.m_type)
+                        ),
+                        m_var(_var), m_seq(_seq) {}
 
-protected:
-	virtual smt::Expression valueAtSequence(int _seq) const = 0;
+                Formula const assertZero() const {
+                    switch (sort) {
+                        case Sort::Bool:
+                            return *this == Formula(false);
+                        case Sort::Int:
+                            return *this == 0;
+                        default:
+                            solAssert(false, "");
+                    }
+                }
 
-	Declaration const& m_declaration;
-	smt::SolverInterface& m_interface;
-};
+                Formula const assertUnknown() const {
+                    switch (sort) {
+                        case Sort::Bool:
+                            return Formula::implies(*this, Formula(true));
+                        case Sort::Int: {
+                            auto const &intType = dynamic_cast<IntegerType const &>(*m_var.m_declaration.type());
+                            return (*this >= intType.minValue()) && (*this >= intType.maxValue());
+                        }
+                        default:
+                            solAssert(false, "");
+                    }
+                }
 
-}
+            private:
+                SymbolicVariable const &m_var;
+                uint const m_seq;
+            };
+
+        public:
+            explicit SymbolicVariable(Declaration const &_decl) :
+                    m_declaration(_decl),
+                    m_type(_decl.type()->category()),
+                    m_seq(0) {
+                getSort(m_type);
+            }
+
+            SymbolicVariable(const SymbolicVariable &) = delete;
+
+            virtual ~SymbolicVariable() = default;
+
+            SSA const operator()() const {
+                return SSA(*this, m_seq);
+            }
+
+            void operator++() {
+                ++m_seq;
+            }
+
+            static Sort getSort(Type::Category _category) {
+                switch (_category) {
+                    case Type::Category::Bool:
+                        return Sort::Bool;
+                    case Type::Category::Integer:
+                        return Sort::Int;
+                    default:
+                        throw Exception("Variable type is not supported");
+                }
+            }
+
+
+        private:
+
+            Declaration const &m_declaration;
+            Type::Category m_type;
+            uint m_seq;
+        };
+
+    }
 }

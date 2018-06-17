@@ -1,4 +1,4 @@
-// author: Matteo Marescotti
+// Author: Matteo Marescotti
 
 #pragma once
 
@@ -56,31 +56,40 @@ namespace dev {
                         {"*",   2},
                         {"/",   2}
                 };
-                return operatorsArity.count(m_name) && operatorsArity.at(m_name) == m_arguments.size();
+                return m_arguments.empty() ||
+                       (operatorsArity.count(m_name) && operatorsArity.at(m_name) == m_arguments.size());
             }
 
-            virtual std::pair<std::string, std::string> const smtlib(std::string const &_nonce = "") const {
+            virtual std::pair<std::set<std::string>, std::string> const sexpr(std::string const &_nonce = "") const {
                 if (m_arguments.empty()) {
-                    return {"", m_name};
+                    return {{}, m_name};
                 } else {
-                    std::ostringstream ss_f;
-                    std::ostringstream ss_d;
-                    ss_f << "(" << m_name;
+                    std::ostringstream ss;
+                    std::set<std::string> d;
+                    ss << "(" << m_name;
                     for (auto argument:m_arguments) {
-                        auto &pair = argument->smtlib(_nonce);
-                        ss_d << pair.first;
-                        ss_f << " " << pair.second;
+                        auto &pair = argument->sexpr(_nonce);
+                        d.insert(pair.first.begin(), pair.first.end());
+                        ss << " " << pair.second;
                     }
-                    ss_f << ")";
-                    return {ss_d.str(), ss_f.str()};
+                    ss << ")";
+                    return {d, ss.str()};
                 }
+            }
+
+            inline bool isTrue() const {
+                return m_name == "true";
+            }
+
+            inline bool isFalse() const {
+                return m_name == "false";
             }
 
             template<typename T1, typename T2, typename T3>
             static Formula const ite(T1 const &_condition,
                                      T2 const &_trueValue,
                                      T3 const &_falseValue) {
-                return Formula("ite", {&_condition, &_trueValue, &_falseValue}, _trueValue.sort);
+                return Formula("ite", _condition, _trueValue, _falseValue, _trueValue.sort);
             }
 
             template<typename T1, typename T2>
@@ -193,6 +202,14 @@ namespace dev {
                 m_arguments.push_back(std::shared_ptr<Formula>(new T2(_arg2)));
             }
 
+            template<typename T1, typename T2, typename T3>
+            Formula(std::string const &_name, T1 const &_arg1, T2 const &_arg2, T3 const &_arg3, Sort const _sort) :
+                    Formula(_name, _sort) {
+                m_arguments.push_back(std::shared_ptr<Formula>(new T1(_arg1)));
+                m_arguments.push_back(std::shared_ptr<Formula>(new T2(_arg2)));
+                m_arguments.push_back(std::shared_ptr<Formula>(new T3(_arg3)));
+            }
+
             std::vector<std::shared_ptr<Formula>> m_arguments;
         };
 
@@ -201,12 +218,11 @@ namespace dev {
         public:
             FormulaVariable(std::string const &_name, Sort const _sort) : Formula(_name, _sort) {}
 
-            std::pair<std::string, std::string> const smtlib(std::string const &_nonce = "") const override {
+            std::pair<std::set<std::string>, std::string> const sexpr(std::string const &_nonce = "") const override {
                 std::string name = m_name + (_nonce.empty() ? "" : "." + _nonce);
-                return {"(declare-const " + name + " " + to_string(sort) + ")\n", name};
+                return {{"(declare-const " + name + " " + to_string(sort) + ")"}, name};
             }
         };
-
 
     }
 }

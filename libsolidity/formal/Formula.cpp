@@ -22,7 +22,7 @@ const Formula::sexpr_t Formula::sexpr(const string &_nonce) const {
         std::ostringstream ss;
         std::set<std::string> d;
         ss << "(" << m_name;
-        for (auto argument:m_arguments) {
+        for (auto const &argument:m_arguments) {
             auto &pair = argument->sexpr(_nonce);
             d.insert(pair.first.begin(), pair.first.end());
             ss << " " << pair.second;

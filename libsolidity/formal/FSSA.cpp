@@ -33,20 +33,20 @@ FSSA::FSSA(ContractDefinition const &_contract, FunctionDefinition const &_funct
 
     for (auto const &variable : _contract.stateVariables())
         if (variable->type()->isValueType() && (var = createVariable(*variable, m_stateVariables)))
-            m_statements.emplace_back(Statement(Formula(true), (*var)().assertUnknown(), variable->location()));
+            m_statements.emplace_back(Statement(Formula::True(), (*var)().assertUnknown(), variable->location()));
 
     for (auto const &param: _function.parameters())
         if ((var = createVariable(*param, m_parameters)))
-            m_statements.emplace_back(Statement(Formula(true), (*var)().assertUnknown(), param->location()));
+            m_statements.emplace_back(Statement(Formula::True(), (*var)().assertUnknown(), param->location()));
 
     for (auto const &variable: _function.localVariables())
         if ((var = createVariable(*variable, m_locals)))
-            m_statements.emplace_back(Statement(Formula(true), (*var)().assertZero(), variable->location()));
+            m_statements.emplace_back(Statement(Formula::True(), (*var)().assertZero(), variable->location()));
 
     if (!_function.returnParameters().empty()) {
         for (auto const &retParam: _function.returnParameters())
             if ((var = createVariable(*retParam, m_returns)))
-                m_statements.emplace_back(Statement(Formula(true), (*var)().assertZero(), retParam->location()));
+                m_statements.emplace_back(Statement(Formula::True(), (*var)().assertZero(), retParam->location()));
     }
     m_contract.type();
     m_function.type();
@@ -83,7 +83,7 @@ SymbolicVariable *FSSA::getVariable(Declaration const &_decl) {
 }
 
 std::string const uniqueSymbol(Expression const &_expr) {
-    return "expr_" + std::to_string(_expr.id());
+    return "!expr-" + std::to_string(_expr.id());
 }
 
 void FSSA::createExpr(Expression const &_e) {
@@ -218,10 +218,10 @@ void FSSA::assignment(Declaration const &_variable, Formula const &_value, Sourc
 Formula division(Formula const &_left, Formula const &_right, IntegerType const &_type) {
     // Signed division in SMTLIB2 rounds differently for negative division.
     if (_type.isSigned())
-        return (Formula::ite(
+        return (Formula::ITE(
                 _left >= 0,
-                Formula::ite(_right >= 0, _left / _right, 0 - (_left / (0 - _right))),
-                Formula::ite(_right >= 0, 0 - ((0 - _left) / _right), (0 - _left) / (0 - _right))
+                Formula::ITE(_right >= 0, _left / _right, 0 - (_left / (0 - _right))),
+                Formula::ITE(_right >= 0, 0 - ((0 - _left) / _right), (0 - _left) / (0 - _right))
         ));
     else
         return _left / _right;
@@ -318,9 +318,8 @@ void FSSA::booleanOperation(BinaryOperation const &_op) {
 }
 
 Formula const FSSA::currentPathCondition() {
-    static const Formula smtTrue = Formula(true);
     if (m_pathConditions.empty())
-        return smtTrue;
+        return Formula::True();
     return m_pathConditions.back();
 }
 
@@ -335,5 +334,13 @@ void FSSA::popPathCondition() {
 
 void FSSA::addStatement(const FSSA::Statement &&_statement) {
     m_statements.emplace_back(_statement);
+}
+
+Formula const FSSA::getFormula() {
+    std::vector<Formula> v;
+    for (auto const &statement:m_statements) {
+        v.push_back(statement.getFormula());
+    }
+    return Formula::And(v);
 }
 

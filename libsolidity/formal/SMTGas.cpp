@@ -81,7 +81,7 @@ bool SMTGas::visit(FunctionDefinition const &_function) {
 }
 
 void SMTGas::endVisit(FunctionDefinition const &) {
-    //cout << m_fssa.at(m_currentFunction).to_smtlib() << endl;
+    cout << m_fssa.at(m_currentFunction).getFormula().sexpr().second << endl;
     m_currentFunction = nullptr;
 }
 

@@ -37,7 +37,7 @@ namespace dev {
                 Formula const assertZero() const {
                     switch (sort) {
                         case Sort::Bool:
-                            return *this == Formula(false);
+                            return *this == Formula::False();
                         case Sort::Int:
                             return *this == 0;
                         default:
@@ -48,7 +48,7 @@ namespace dev {
                 Formula const assertUnknown() const {
                     switch (sort) {
                         case Sort::Bool:
-                            return Formula::implies(*this, Formula(true));
+                            return Formula::Implies(*this, Formula::True());
                         case Sort::Int: {
                             auto const &intType = dynamic_cast<IntegerType const &>(*m_var.m_declaration.type());
                             return (*this >= intType.minValue()) && (*this >= intType.maxValue());

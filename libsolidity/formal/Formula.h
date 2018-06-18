@@ -18,8 +18,6 @@ namespace dev {
 
         class Formula {
         public:
-            explicit Formula(bool _v) : Formula((_v ? "true" : "false"), Sort::Bool) {}
-
             Formula(size_t _number) : Formula(std::to_string(_number), Sort::Int) {}
 
             Formula(u256 const &_number) : Formula(_number.str(), Sort::Int) {}
@@ -34,29 +32,19 @@ namespace dev {
 
             Formula &operator=(Formula &&) = default;
 
-            bool hasCorrectArity() const {
-                static std::map<std::string, unsigned> const operatorsArity{
-                        {"ite", 3},
-                        {"not", 1},
-                        {"and", 2},
-                        {"or",  2},
-                        {"=",   2},
-                        {"<",   2},
-                        {"<=",  2},
-                        {">",   2},
-                        {">=",  2},
-                        {"+",   2},
-                        {"-",   2},
-                        {"*",   2},
-                        {"/",   2}
-                };
-                return m_arguments.empty() ||
-                       (operatorsArity.count(m_name) && operatorsArity.at(m_name) == m_arguments.size());
-            }
-
             using sexpr_t = std::pair<std::set<std::string>, std::string>;
 
             virtual sexpr_t const sexpr(std::string const &_nonce = "") const;
+
+            static const Formula True() {
+                static Formula _true("true", Sort::Bool);
+                return _true;
+            }
+
+            static const Formula False() {
+                static Formula _false("false", Sort::Bool);
+                return _false;
+            };
 
             inline bool isTrue() const {
                 return m_name == "true";
@@ -66,36 +54,56 @@ namespace dev {
                 return m_name == "false";
             }
 
+            template<class T>
+            static Formula const And(std::vector<T> const &_args) {
+                return Formula("and", Sort::Bool, _args);
+            }
+
+            template<class T>
+            static Formula const Or(std::vector<T> const &_args) {
+                return Formula("or", Sort::Bool, _args);
+            }
+
+            template<class... Args>
+            static Formula const And(Args const &... _args) {
+                return Formula("and", Sort::Bool, _args...);
+            }
+
+            template<class... Args>
+            static Formula const Or(Args const &... _args) {
+                return Formula("or", Sort::Bool, _args...);
+            }
+
             template<class T1, class T2, class T3>
-            static Formula const ite(T1 const &_condition,
+            static Formula const ITE(T1 const &_condition,
                                      T2 const &_trueValue,
                                      T3 const &_falseValue) {
-                return Formula("ite", _condition, _trueValue, _falseValue, _trueValue.sort);
+                return Formula("ite", _trueValue.sort, _condition, _trueValue, _falseValue);
             }
 
             template<class T1, class T2>
-            static Formula const implies(T1 const &_arg1, T2 const &_arg2) {
+            static Formula const Implies(T1 const &_arg1, T2 const &_arg2) {
                 return !_arg1 || _arg2;
             }
 
             template<class T1>
             friend Formula const operator!(T1 const &_arg1) {
-                return Formula("not", _arg1, Sort::Bool);
+                return Formula("not", Sort::Bool, _arg1);
             }
 
             template<class T1, class T2>
             friend Formula const operator&&(T1 const &_arg1, T2 const &_arg2) {
-                return Formula("and", _arg1, _arg2, Sort::Bool);
+                return Formula("and", Sort::Bool, _arg1, _arg2);
             }
 
             template<class T1, class T2>
             friend Formula const operator||(T1 const &_arg1, T2 const &_arg2) {
-                return Formula("or", _arg1, _arg2, Sort::Bool);
+                return Formula("or", Sort::Bool, _arg1, _arg2);
             }
 
             template<class T1, class T2>
             friend Formula const operator==(T1 const &_arg1, T2 const &_arg2) {
-                return Formula("=", _arg1, _arg2, Sort::Bool);
+                return Formula("=", Sort::Bool, _arg1, _arg2);
             }
 
             template<class T1, class T2>
@@ -105,42 +113,42 @@ namespace dev {
 
             template<class T1, class T2>
             friend Formula const operator<(T1 const &_arg1, T2 const &_arg2) {
-                return Formula("<", _arg1, _arg2, Sort::Bool);
+                return Formula("<", Sort::Bool, _arg1, _arg2);
             }
 
             template<class T1, class T2>
             friend Formula const operator<=(T1 const &_arg1, T2 const &_arg2) {
-                return Formula("<=", _arg1, _arg2, Sort::Bool);
+                return Formula("<=", Sort::Bool, _arg1, _arg2);
             }
 
             template<class T1, class T2>
             friend Formula const operator>(T1 const &_arg1, T2 const &_arg2) {
-                return Formula(">", _arg1, _arg2, Sort::Bool);
+                return Formula(">", Sort::Bool, _arg1, _arg2);
             }
 
             template<class T1, class T2>
             friend Formula const operator>=(T1 const &_arg1, T2 const &_arg2) {
-                return Formula(">=", _arg1, _arg2, Sort::Bool);
+                return Formula(">=", Sort::Bool, _arg1, _arg2);
             }
 
             template<class T1, class T2>
             friend Formula const operator+(T1 const &_arg1, T2 const &_arg2) {
-                return Formula("+", _arg1, _arg2, Sort::Int);
+                return Formula("+", Sort::Int, _arg1, _arg2);
             }
 
             template<class T1, class T2>
             friend Formula const operator-(T1 const &_arg1, T2 const &_arg2) {
-                return Formula("-", _arg1, _arg2, Sort::Int);
+                return Formula("-", Sort::Int, _arg1, _arg2);
             }
 
             template<class T1, class T2>
             friend Formula const operator*(T1 const &_arg1, T2 const &_arg2) {
-                return Formula("*", _arg1, _arg2, Sort::Int);
+                return Formula("*", Sort::Int, _arg1, _arg2);
             }
 
             template<class T1, class T2>
             friend Formula const operator/(T1 const &_arg1, T2 const &_arg2) {
-                return Formula("/", _arg1, _arg2, Sort::Int);
+                return Formula("/", Sort::Int, _arg1, _arg2);
             }
 
 //            Formula const operator()(Formula const &_arg1) const {
@@ -170,30 +178,37 @@ namespace dev {
             std::string const m_name;
 
         private:
-            template<class T1>
-            Formula(std::string const &_name, T1 const &_arg1, Sort const _sort) :
+
+            template<class T>
+            Formula(std::string const &_name, Sort const _sort, std::vector<T> const &_args) :
                     Formula(_name, _sort) {
-                m_arguments.push_back(std::make_shared<Formula>(new T1(_arg1)));
+                for (auto &arg:_args) {
+                    init_arguments(arg);
+                }
             }
 
-            template<class T1, class T2>
-            Formula(std::string const &_name, T1 const &_arg1, T2 const &_arg2, Sort const _sort) :
+            template<class... Args>
+            Formula(std::string const &_name, Sort const _sort, Args const &..._args) :
                     Formula(_name, _sort) {
-                m_arguments.push_back(std::make_shared<Formula>(new T1(_arg1)));
-                m_arguments.push_back(std::make_shared<Formula>(new T2(_arg2)));
+                init_arguments(_args...);
             }
 
-            template<class T1, class T2, class T3>
-            Formula(std::string const &_name, T1 const &_arg1, T2 const &_arg2, T3 const &_arg3, Sort const _sort) :
-                    Formula(_name, _sort) {
-                m_arguments.push_back(std::make_shared<Formula>(new T1(_arg1)));
-                m_arguments.push_back(std::make_shared<Formula>(new T2(_arg2)));
-                m_arguments.push_back(std::make_shared<Formula>(new T3(_arg3)));
+            template<class T, class... Args>
+            void init_arguments(T const &_arg, Args const &..._args) {
+                init_arguments(_arg);
+                init_arguments(_args...);
+            };
+
+            template<class T>
+            void init_arguments(T const &_arg) {
+                if (std::is_base_of<Formula, T>::value)
+                    m_arguments.push_back(std::shared_ptr<Formula>((Formula *) new T(_arg)));
+                else
+                    m_arguments.push_back(std::shared_ptr<Formula>(new Formula(_arg)));
             }
 
             std::vector<std::shared_ptr<Formula>> m_arguments;
         };
-
 
         class FormulaVariable : public Formula {
         public:

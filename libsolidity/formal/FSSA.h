@@ -14,13 +14,17 @@ namespace dev {
                 Statement(Formula const &_condition, Formula const &_expression, SourceLocation const &_location) :
                         m_condition(_condition), m_expression(_expression), m_location(_location) {}
 
-                virtual Formula::sexpr_t const sexpr(std::string const &_nonce = "") {
-                    m_location.isEmpty(); //TODO: remove when use location
+                Formula const getFormula() const {
                     if (m_condition.isTrue()) {
-                        return m_expression.sexpr(_nonce);
+                        return m_expression;
                     } else {
-                        return Formula::implies(m_condition, m_expression).sexpr(_nonce);
+                        return Formula::Implies(m_condition, m_expression);
                     }
+                }
+
+                virtual Formula::sexpr_t const sexpr(std::string const &_nonce = "") const {
+                    m_location.isEmpty(); //TODO: remove when use location
+                    return getFormula().sexpr(_nonce);
                 };
 
             protected:
@@ -61,6 +65,12 @@ namespace dev {
             void pushPathCondition(Expression const &_e, bool _sign = true);
 
             void popPathCondition();
+
+            Formula const getFormula();
+
+            std::vector<Statement> const &getStatements() {
+                return m_statements;
+            }
 
         private:
             SymbolicVariable *createVariable(VariableDeclaration const &_varDecl,

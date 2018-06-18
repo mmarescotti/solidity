@@ -40,7 +40,6 @@
 #include <libsolidity/analysis/SyntaxChecker.h>
 #include <libsolidity/analysis/ViewPureChecker.h>
 #include <libsolidity/codegen/Compiler.h>
-#include <libsolidity/formal/SMTChecker.h>
 #include <libsolidity/formal/SMTGas.h>
 #include <libsolidity/interface/ABI.h>
 #include <libsolidity/interface/Natspec.h>

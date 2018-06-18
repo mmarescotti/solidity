@@ -71,8 +71,6 @@ namespace dev {
                 getSort(m_type);
             }
 
-            SymbolicVariable(const SymbolicVariable &) = delete;
-
             virtual ~SymbolicVariable() = default;
 
             SSA const operator()() const {

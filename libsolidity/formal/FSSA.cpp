@@ -2,16 +2,16 @@
 // Created by Matteo on 07/06/2018.
 //
 
-#ifdef HAVE_Z3
-
-#include <libsolidity/formal/Z3Interface.h>
-#include <exception>
-
-#elif HAVE_CVC4
-#include <libsolidity/formal/CVC4Interface.h>
-#else
-#include <libsolidity/formal/SMTLib2Interface.h>
-#endif
+//#ifdef HAVE_Z3
+//
+//#include <libsolidity/formal/Z3Interface.h>
+//#include <exception>
+//
+//#elif HAVE_CVC4
+//#include <libsolidity/formal/CVC4Interface.h>
+//#else
+//#include <libsolidity/formal/SMTLib2Interface.h>
+//#endif
 
 #include "FSSA.h"
 
@@ -114,15 +114,14 @@ void FSSA::createExpr(UnaryOperation const &_op) {
     switch (_op.getOperator()) {
         case Token::Not: // !
         {
-            solAssert(SSAVariable::isBool(_op.annotation().type->category()), "");
+            solAssert(SymbolicVariable::getSort(_op.annotation().type->category()) == Sort::Bool, "");
             defineExpr(_op, !expr(_op.subExpression()));
             break;
         }
         case Token::Inc: // ++ (pre- or postfix)
         case Token::Dec: // -- (pre- or postfix)
         {
-
-            solAssert(SSAVariable::isInteger(_op.annotation().type->category()), "");
+            solAssert(SymbolicVariable::getSort(_op.annotation().type->category()) == Sort::Int, "");
             solAssert(_op.subExpression().annotation().lValueRequested, "");
             if (auto const &identifier = dynamic_cast<Identifier const *>(&_op.subExpression())) {
                 Declaration const *decl = identifier->annotation().referencedDeclaration;
@@ -188,6 +187,7 @@ void FSSA::defineExpr(Expression const &_e, Expression const &_value) {
 }
 
 void FSSA::defineExpr(Expression const &_e, Declaration const &_variable) {
+    SymbolicVariable::getSort(_e.annotation().type->category());
     if (auto v = getVariable(_variable)) {
         defineExpr(_e, (*v)());
     } else {
@@ -263,37 +263,41 @@ void FSSA::arithmeticOperation(BinaryOperation const &_op) {
 
 void FSSA::compareOperation(BinaryOperation const &_op) {
     solAssert(_op.annotation().commonType, "");
-    if (SSAVariable::isSupportedType(_op.annotation().commonType->category())) {
-        Formula left(expr(_op.leftExpression()));
-        Formula right(expr(_op.rightExpression()));
-        Token::Value op = _op.getOperator();
-        shared_ptr<Formula> value;
-        if (SSAVariable::isInteger(_op.annotation().commonType->category())) {
-            value = make_shared<Formula>(
-                    op == Token::Equal ? (left == right) :
-                    op == Token::NotEqual ? (left != right) :
-                    op == Token::LessThan ? (left < right) :
-                    op == Token::LessThanOrEqual ? (left <= right) :
-                    op == Token::GreaterThan ? (left > right) :
-                    /*op == Token::GreaterThanOrEqual*/ (left >= right)
-            );
-        } else // Bool
-        {
-            solUnimplementedAssert(SSAVariable::isBool(_op.annotation().commonType->category()),
-                                   "Operation not yet supported");
-            value = make_shared<Formula>(
-                    op == Token::Equal ? (left == right) :
-                    /*op == Token::NotEqual*/ (left != right)
-            );
-        }
-        // TODO: check that other values for op are not possible.
-        defineExpr(_op, *value);
-    } else
-        m_errorReporter.warning(
+    Sort sort;
+    try {
+        sort = SymbolicVariable::getSort(_op.annotation().commonType->category());
+    } catch (Exception &ex) {
+        m_errorReporter.fatalParserError(
                 _op.location(),
-                "Assertion checker does not yet implement the type " + _op.annotation().commonType->toString() +
+                "Gas estimator does not yet implement the type " + _op.annotation().commonType->toString() +
                 " for comparisons"
         );
+        return;
+    }
+    Formula left(expr(_op.leftExpression()));
+    Formula right(expr(_op.rightExpression()));
+    Token::Value op = _op.getOperator();
+    shared_ptr<Formula> value;
+    if (sort == Sort::Int) {
+        value = make_shared<Formula>(
+                op == Token::Equal ? (left == right) :
+                op == Token::NotEqual ? (left != right) :
+                op == Token::LessThan ? (left < right) :
+                op == Token::LessThanOrEqual ? (left <= right) :
+                op == Token::GreaterThan ? (left > right) :
+                /*op == Token::GreaterThanOrEqual*/ (left >= right)
+        );
+    } else // Bool
+    {
+//        solUnimplementedAssert(SSAVariable::isBool(_op.annotation().commonType->category()),
+//                               "Operation not yet supported");
+        value = make_shared<Formula>(
+                op == Token::Equal ? (left == right) :
+                /*op == Token::NotEqual*/ (left != right)
+        );
+    }
+    // TODO: check that other values for op are not possible.
+    defineExpr(_op, *value);
 }
 
 void FSSA::booleanOperation(BinaryOperation const &_op) {
@@ -313,9 +317,8 @@ void FSSA::booleanOperation(BinaryOperation const &_op) {
         );
 }
 
-const Formula smtTrue = Formula(true);
-
 Formula const FSSA::currentPathCondition() {
+    static const Formula smtTrue = Formula(true);
     if (m_pathConditions.empty())
         return smtTrue;
     return m_pathConditions.back();
@@ -331,11 +334,6 @@ void FSSA::popPathCondition() {
 }
 
 void FSSA::addStatement(const FSSA::Statement &&_statement) {
-    m_interface->addAssertion(_statement.expr());
     m_statements.emplace_back(_statement);
-}
-
-std::string FSSA::to_smtlib() {
-    return m_interface->to_string();
 }
 

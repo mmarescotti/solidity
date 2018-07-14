@@ -24,6 +24,8 @@ namespace dev {
 
             Formula(bigint const &_number) : Formula(_number.str(), Sort::Int) {}
 
+            Formula() : Formula(True()) {}
+
             Formula(Formula const &) = default;
 
             Formula(Formula &&) = default;
@@ -31,6 +33,8 @@ namespace dev {
             Formula &operator=(Formula const &) = default;
 
             Formula &operator=(Formula &&) = default;
+
+            virtual ~Formula() {}
 
             using sexpr_t = std::pair<std::set<std::string>, std::string>;
 

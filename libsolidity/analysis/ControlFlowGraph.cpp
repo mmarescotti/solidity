@@ -21,6 +21,7 @@
 #include <boost/range/adaptor/reversed.hpp>
 
 #include <algorithm>
+#include "ControlFlowGraph.h"
 
 using namespace std;
 using namespace dev::solidity;
@@ -29,6 +30,12 @@ bool CFG::constructFlow(ASTNode const& _astRoot)
 {
 	_astRoot.accept(*this);
 	applyModifiers();
+	for(auto &pair:m_functionControlFlow){
+		FunctionDefinition const* f= pair.first;
+		cout << f->name() << "\n";
+		FunctionFlow const *cfg = pair.second.get();
+		cfg->print();
+	}
 	return Error::containsOnlyWarnings(m_errorReporter.errors());
 }
 

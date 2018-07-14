@@ -1,6 +1,5 @@
-//
-// Created by Matteo on 07/06/2018.
-//
+// Author: Matteo Marescotti
+
 
 //#ifdef HAVE_Z3
 //

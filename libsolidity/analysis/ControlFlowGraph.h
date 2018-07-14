@@ -25,6 +25,8 @@
 #include <memory>
 #include <stack>
 #include <vector>
+#include <typeinfo>
+#include <queue>
 
 namespace dev
 {
@@ -50,6 +52,12 @@ struct ControlFlowBlock
 	/// If control flow returns in this node, the return statement is stored in returnStatement,
 	/// otherwise returnStatement is nullptr.
 	Return const* returnStatement = nullptr;
+
+	void print(){
+		for (auto *ex:expressions){
+			std::cout << dynamic_cast<BinaryOperation const*>(ex) << "\n";
+		}
+	}
 };
 
 /** Node of the Control Flow Graph.
@@ -83,6 +91,20 @@ struct FunctionFlow
 	/// This node is empty does not have any exits, but may have multiple entries
 	/// (e.g. all assert, require, revert and throw statements).
 	CFGNode* revert = nullptr;
+
+	void print()const{
+		std::map<CFGNode*, bool> visited;
+		std::queue<CFGNode*> to_visit;
+		to_visit.push(entry);
+		while(!to_visit.empty()){
+			CFGNode *f = to_visit.front();
+			to_visit.pop();
+			for (CFGNode *n:f->exits){
+				to_visit.push(n);
+			}
+			f->block.print();
+		}
+	}
 };
 
 /** Describes the control flow of a modifier.

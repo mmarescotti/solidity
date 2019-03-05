@@ -16,8 +16,12 @@
 */
 
 #include <libdevcore/CommonIO.h>
+#include <libdevcore/AnsiColorized.h>
+
+#include <test/Common.h>
+#include <test/tools/IsolTestOptions.h>
 #include <test/libsolidity/AnalysisFramework.h>
-#include <test/libsolidity/SyntaxTest.h>
+#include <test/InteractiveTests.h>
 
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/replace.hpp>
@@ -29,26 +33,41 @@
 #include <fstream>
 #include <queue>
 
+#if defined(_WIN32)
+#include <windows.h>
+#endif
+
 using namespace dev;
 using namespace dev::solidity;
 using namespace dev::solidity::test;
-using namespace dev::solidity::test::formatting;
+using namespace dev::formatting;
 using namespace std;
 namespace po = boost::program_options;
 namespace fs = boost::filesystem;
 
-struct SyntaxTestStats
+struct TestStats
 {
 	int successCount;
-	int runCount;
-	operator bool() const { return successCount == runCount; }
+	int testCount;
+	operator bool() const { return successCount == testCount; }
+	TestStats& operator+=(TestStats const& _other) noexcept
+	{
+		successCount += _other.successCount;
+		testCount += _other.testCount;
+		return *this;
+	}
 };
 
-class SyntaxTestTool
+class TestTool
 {
 public:
-	SyntaxTestTool(string const& _name, fs::path const& _path, bool _formatted):
-		m_formatted(_formatted), m_name(_name), m_path(_path)
+	TestTool(
+		TestCase::TestCaseCreator _testCaseCreator,
+		string const& _name,
+		fs::path const& _path,
+		string const& _ipcPath,
+		bool _formatted
+	): m_testCaseCreator(_testCaseCreator), m_name(_name), m_path(_path), m_ipcPath(_ipcPath), m_formatted(_formatted)
 	{}
 
 	enum class Result
@@ -60,9 +79,11 @@ public:
 
 	Result process();
 
-	static SyntaxTestStats processPath(
+	static TestStats processPath(
+		TestCase::TestCaseCreator _testCaseCreator,
 		fs::path const& _basepath,
 		fs::path const& _path,
+		string const& _ipcPath,
 		bool const _formatted
 	);
 
@@ -77,116 +98,67 @@ private:
 
 	Request handleResponse(bool const _exception);
 
-	void printContract() const;
-
-	bool const m_formatted;
+	TestCase::TestCaseCreator m_testCaseCreator;
 	string const m_name;
 	fs::path const m_path;
-	unique_ptr<SyntaxTest> m_test;
+	string m_ipcPath;
+	bool const m_formatted = false;
+	unique_ptr<TestCase> m_test;
+	static bool m_exitRequested;
 };
 
-string SyntaxTestTool::editor;
+string TestTool::editor;
+bool TestTool::m_exitRequested = false;
 
-void SyntaxTestTool::printContract() const
-{
-	if (m_formatted)
-	{
-		string const& source = m_test->source();
-		if (source.empty())
-			return;
-
-		std::vector<char const*> sourceFormatting(source.length(), formatting::RESET);
-		for (auto const& error: m_test->errorList())
-			if (error.locationStart >= 0 && error.locationEnd >= 0)
-			{
-				assert(static_cast<size_t>(error.locationStart) <= source.length());
-				assert(static_cast<size_t>(error.locationEnd) <= source.length());
-				bool isWarning = error.type == "Warning";
-				for (int i = error.locationStart; i < error.locationEnd; i++)
-					if (isWarning)
-					{
-						if (sourceFormatting[i] == formatting::RESET)
-							sourceFormatting[i] = formatting::ORANGE_BACKGROUND;
-					}
-					else
-						sourceFormatting[i] = formatting::RED_BACKGROUND;
-			}
-
-		cout << "    " << sourceFormatting.front() << source.front();
-		for (size_t i = 1; i < source.length(); i++)
-		{
-			if (sourceFormatting[i] != sourceFormatting[i - 1])
-				cout << sourceFormatting[i];
-			if (source[i] != '\n')
-				cout << source[i];
-			else
-			{
-				cout << formatting::RESET << endl;
-				if (i + 1 < source.length())
-					cout << "    " << sourceFormatting[i];
-			}
-		}
-		cout << formatting::RESET << endl;
-	}
-	else
-	{
-		stringstream stream(m_test->source());
-		string line;
-		while (getline(stream, line))
-			cout << "    " << line << endl;
-		cout << endl;
-	}
-}
-
-SyntaxTestTool::Result SyntaxTestTool::process()
+TestTool::Result TestTool::process()
 {
 	bool success;
 	std::stringstream outputMessages;
 
-	(FormattedScope(cout, m_formatted, {BOLD}) << m_name << ": ").flush();
+	(AnsiColorized(cout, m_formatted, {BOLD}) << m_name << ": ").flush();
 
 	try
 	{
-		m_test = unique_ptr<SyntaxTest>(new SyntaxTest(m_path.string()));
+		m_test = m_testCaseCreator(TestCase::Config{m_path.string(), m_ipcPath});
 		success = m_test->run(outputMessages, "  ", m_formatted);
 	}
 	catch(boost::exception const& _e)
 	{
-		FormattedScope(cout, m_formatted, {BOLD, RED}) <<
-			"Exception during syntax test: " << boost::diagnostic_information(_e) << endl;
+		AnsiColorized(cout, m_formatted, {BOLD, RED}) <<
+			"Exception during test: " << boost::diagnostic_information(_e) << endl;
 		return Result::Exception;
 	}
 	catch (std::exception const& _e)
 	{
-		FormattedScope(cout, m_formatted, {BOLD, RED}) <<
-			"Exception during syntax test: " << _e.what() << endl;
+		AnsiColorized(cout, m_formatted, {BOLD, RED}) <<
+			"Exception during test: " << _e.what() << endl;
 		return Result::Exception;
 	}
-	catch(...)
+	catch (...)
 	{
-		FormattedScope(cout, m_formatted, {BOLD, RED}) <<
-			"Unknown exception during syntax test." << endl;
+		AnsiColorized(cout, m_formatted, {BOLD, RED}) <<
+			"Unknown exception during test." << endl;
 		return Result::Exception;
 	}
 
 	if (success)
 	{
-		FormattedScope(cout, m_formatted, {BOLD, GREEN}) << "OK" << endl;
+		AnsiColorized(cout, m_formatted, {BOLD, GREEN}) << "OK" << endl;
 		return Result::Success;
 	}
 	else
 	{
-		FormattedScope(cout, m_formatted, {BOLD, RED}) << "FAIL" << endl;
+		AnsiColorized(cout, m_formatted, {BOLD, RED}) << "FAIL" << endl;
 
-		FormattedScope(cout, m_formatted, {BOLD, CYAN}) << "  Contract:" << endl;
-		printContract();
+		AnsiColorized(cout, m_formatted, {BOLD, CYAN}) << "  Contract:" << endl;
+		m_test->printSource(cout, "    ", m_formatted);
 
-		cout << outputMessages.str() << endl;
+		cout << endl << outputMessages.str() << endl;
 		return Result::Failure;
 	}
 }
 
-SyntaxTestTool::Request SyntaxTestTool::handleResponse(bool const _exception)
+TestTool::Request TestTool::handleResponse(bool const _exception)
 {
 	if (_exception)
 		cout << "(e)dit/(s)kip/(q)uit? ";
@@ -208,15 +180,14 @@ SyntaxTestTool::Request SyntaxTestTool::handleResponse(bool const _exception)
 			{
 				cout << endl;
 				ofstream file(m_path.string(), ios::trunc);
-				file << m_test->source();
+				m_test->printSource(file);
 				file << "// ----" << endl;
-				if (!m_test->errorList().empty())
-					m_test->printErrorList(file, m_test->errorList(), "// ", false);
+				m_test->printUpdatedExpectations(file, "// ");
 				return Request::Rerun;
 			}
 		case 'e':
 			cout << endl << endl;
-			if (system((editor + " \"" + m_path.string() + "\"").c_str()))
+			if (system((TestTool::editor + " \"" + m_path.string() + "\"").c_str()))
 				cerr << "Error running editor command." << endl << endl;
 			return Request::Rerun;
 		case 'q':
@@ -228,17 +199,18 @@ SyntaxTestTool::Request SyntaxTestTool::handleResponse(bool const _exception)
 	}
 }
 
-
-SyntaxTestStats SyntaxTestTool::processPath(
+TestStats TestTool::processPath(
+	TestCase::TestCaseCreator _testCaseCreator,
 	fs::path const& _basepath,
 	fs::path const& _path,
+	string const& _ipcPath,
 	bool const _formatted
 )
 {
 	std::queue<fs::path> paths;
 	paths.push(_path);
 	int successCount = 0;
-	int runCount = 0;
+	int testCount = 0;
 
 	while (!paths.empty())
 	{
@@ -252,13 +224,18 @@ SyntaxTestStats SyntaxTestTool::processPath(
 				fs::directory_iterator(fullpath),
 				fs::directory_iterator()
 			))
-				if (fs::is_directory(entry.path()) || SyntaxTest::isTestFilename(entry.path().filename()))
+				if (fs::is_directory(entry.path()) || TestCase::isTestFilename(entry.path().filename()))
 					paths.push(currentPath / entry.path().filename());
+		}
+		else if (m_exitRequested)
+		{
+			++testCount;
+			paths.pop();
 		}
 		else
 		{
-			SyntaxTestTool testTool(currentPath.string(), fullpath, _formatted);
-			++runCount;
+			++testCount;
+			TestTool testTool(_testCaseCreator, currentPath.string(), fullpath, _ipcPath, _formatted);
 			auto result = testTool.process();
 
 			switch(result)
@@ -268,10 +245,12 @@ SyntaxTestStats SyntaxTestTool::processPath(
 				switch(testTool.handleResponse(result == Result::Exception))
 				{
 				case Request::Quit:
-					return { successCount, runCount };
+					paths.pop();
+					m_exitRequested = true;
+					break;
 				case Request::Rerun:
 					cout << "Re-running test case..." << endl;
-					--runCount;
+					--testCount;
 					break;
 				case Request::Skip:
 					paths.pop();
@@ -286,94 +265,105 @@ SyntaxTestStats SyntaxTestTool::processPath(
 		}
 	}
 
-	return { successCount, runCount };
+	return { successCount, testCount };
 
 }
 
-int main(int argc, char *argv[])
+namespace
 {
-	if (getenv("EDITOR"))
-		SyntaxTestTool::editor = getenv("EDITOR");
-	else if (fs::exists("/usr/bin/editor"))
-		SyntaxTestTool::editor = "/usr/bin/editor";
 
-	fs::path testPath;
-	bool formatted = true;
-	po::options_description options(
-		R"(isoltest, tool for interactively managing test contracts.
-Usage: isoltest [Options] --testpath path
-Interactively validates test contracts.
+void setupTerminal()
+{
+#if defined(_WIN32) && defined(ENABLE_VIRTUAL_TERMINAL_PROCESSING)
+	// Set output mode to handle virtual terminal (ANSI escape sequences)
+	// ignore any error, as this is just a "nice-to-have"
+	// only windows needs to be taken care of, as other platforms (Linux/OSX) support them natively.
+	HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+	if (hOut == INVALID_HANDLE_VALUE)
+		return;
 
-Allowed options)",
-		po::options_description::m_default_line_length,
-		po::options_description::m_default_line_length - 23);
-	options.add_options()
-		("help", "Show this help screen.")
-		("testpath", po::value<fs::path>(&testPath), "path to test files")
-		("no-color", "don't use colors")
-		("editor", po::value<string>(&SyntaxTestTool::editor), "editor for opening contracts");
+	DWORD dwMode = 0;
+	if (!GetConsoleMode(hOut, &dwMode))
+		return;
 
-	po::variables_map arguments;
+	dwMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+	if (!SetConsoleMode(hOut, dwMode))
+		return;
+#endif
+}
+
+boost::optional<TestStats> runTestSuite(
+	string const& _name,
+	fs::path const& _basePath,
+	fs::path const& _subdirectory,
+	string const& _ipcPath,
+	TestCase::TestCaseCreator _testCaseCreator,
+	bool _formatted
+)
+{
+	fs::path testPath = _basePath / _subdirectory;
+
+	if (!fs::exists(testPath) || !fs::is_directory(testPath))
+	{
+		cerr << _name << " tests not found. Use the --testpath argument." << endl;
+		return {};
+	}
+
+	TestStats stats = TestTool::processPath(_testCaseCreator, _basePath, _subdirectory, _ipcPath, _formatted);
+
+	cout << endl << _name << " Test Summary: ";
+	AnsiColorized(cout, _formatted, {BOLD, stats ? GREEN : RED}) <<
+		stats.successCount <<
+		"/" <<
+		stats.testCount;
+	cout << " tests successful." << endl << endl;
+
+	return stats;
+}
+
+}
+
+int main(int argc, char const *argv[])
+{
+	setupTerminal();
+
+	dev::test::IsolTestOptions options(&TestTool::editor);
+
 	try
 	{
-		po::command_line_parser cmdLineParser(argc, argv);
-		cmdLineParser.options(options);
-		po::store(cmdLineParser.run(), arguments);
-
-		if (arguments.count("help"))
-		{
-			cout << options << endl;
-			return 0;
-		}
-
-		if (arguments.count("no-color"))
-			formatted = false;
-
-		po::notify(arguments);
+		if (options.parse(argc, argv))
+			options.validate();
+		else
+			return 1;
 	}
-	catch (po::error const& _exception)
+	catch (std::exception const& _exception)
 	{
 		cerr << _exception.what() << endl;
 		return 1;
 	}
 
-	if (testPath.empty())
+	TestStats global_stats{0, 0};
+
+	// Actually run the tests.
+	// Interactive tests are added in InteractiveTests.h
+	for (auto const& ts: g_interactiveTestsuites)
 	{
-		auto const searchPath =
-		{
-			fs::current_path() / ".." / ".." / ".." / "test",
-			fs::current_path() / ".." / ".." / "test",
-			fs::current_path() / ".." / "test",
-			fs::current_path() / "test",
-			fs::current_path()
-		};
-		for (auto const& basePath : searchPath)
-		{
-			fs::path syntaxTestPath = basePath / "libsolidity" / "syntaxTests";
-			if (fs::exists(syntaxTestPath) && fs::is_directory(syntaxTestPath))
-			{
-				testPath = basePath;
-				break;
-			}
-		}
+		if (ts.ipc && options.disableIPC)
+			continue;
+
+		if (ts.smt && options.disableSMT)
+			continue;
+
+		if (auto stats = runTestSuite(ts.title, options.testPath / ts.path, ts.subpath, options.ipcPath.string(), ts.testCaseCreator, !options.noColor))
+			global_stats += *stats;
+		else
+			return 1;
 	}
 
-	fs::path syntaxTestPath = testPath / "libsolidity" / "syntaxTests";
+	cout << endl << "Summary: ";
+	AnsiColorized(cout, !options.noColor, {BOLD, global_stats ? GREEN : RED}) <<
+		 global_stats.successCount << "/" << global_stats.testCount;
+	cout << " tests successful." << endl;
 
-	if (fs::exists(syntaxTestPath) && fs::is_directory(syntaxTestPath))
-	{
-		auto stats = SyntaxTestTool::processPath(testPath / "libsolidity", "syntaxTests", formatted);
-
-		cout << endl << "Summary: ";
-		FormattedScope(cout, formatted, {BOLD, stats ? GREEN : RED}) <<
-			stats.successCount << "/" << stats.runCount;
-		cout << " tests successful." << endl;
-
-		return stats ? 0 : 1;
-	}
-	else
-	{
-		cerr << "Test path not found. Use the --testpath argument." << endl;
-		return 1;
-	}
+	return global_stats ? 0 : 1;
 }

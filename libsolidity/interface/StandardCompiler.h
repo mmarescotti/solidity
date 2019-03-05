@@ -24,6 +24,8 @@
 
 #include <libsolidity/interface/CompilerStack.h>
 
+#include <boost/optional.hpp>
+
 namespace dev
 {
 
@@ -31,7 +33,7 @@ namespace solidity
 {
 
 /**
- * Standard JSON compiler interface, which expects a JSON input and returns a JSON ouput.
+ * Standard JSON compiler interface, which expects a JSON input and returns a JSON output.
  * See docs/using-the-compiler#compiler-input-and-output-json-description.
  */
 class StandardCompiler: boost::noncopyable
@@ -47,12 +49,16 @@ public:
 
 	/// Sets all input parameters according to @a _input which conforms to the standardized input
 	/// format, performs compilation and returns a standardized output.
-	Json::Value compile(Json::Value const& _input);
+	Json::Value compile(Json::Value const& _input) noexcept;
 	/// Parses input as JSON and peforms the above processing steps, returning a serialized JSON
 	/// output. Parsing errors are returned as regular errors.
-	std::string compile(std::string const& _input);
+	std::string compile(std::string const& _input) noexcept;
 
 private:
+	/// Validaes and applies the optimizer settings.
+	/// On error returns the json-formatted error message.
+	boost::optional<Json::Value> parseOptimizerSettings(Json::Value const& _settings);
+
 	Json::Value compileInternal(Json::Value const& _input);
 
 	CompilerStack m_compilerStack;

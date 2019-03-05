@@ -21,15 +21,18 @@
  */
 
 #include <libsolidity/codegen/ArrayUtils.h>
-#include <libevmasm/Instruction.h>
+
+#include <libsolidity/ast/Types.h>
 #include <libsolidity/codegen/CompilerContext.h>
 #include <libsolidity/codegen/CompilerUtils.h>
-#include <libsolidity/ast/Types.h>
-#include <libsolidity/interface/Exceptions.h>
 #include <libsolidity/codegen/LValue.h>
+
+#include <libevmasm/Instruction.h>
+#include <liblangutil/Exceptions.h>
 
 using namespace std;
 using namespace dev;
+using namespace langutil;
 using namespace solidity;
 
 void ArrayUtils::copyArrayToStorage(ArrayType const& _targetType, ArrayType const& _sourceType) const
@@ -620,7 +623,7 @@ void ArrayUtils::clearDynamicArray(ArrayType const& _type) const
 	m_context << Instruction::SWAP1 << Instruction::DUP2 << Instruction::ADD
 		<< Instruction::SWAP1;
 	// stack: data_pos_end data_pos
-	if (_type.isByteArray() || _type.baseType()->storageBytes() < 32)
+	if (_type.storageStride() < 32)
 		clearStorageLoop(make_shared<IntegerType>(256));
 	else
 		clearStorageLoop(_type.baseType());
@@ -766,7 +769,7 @@ void ArrayUtils::resizeDynamicArray(ArrayType const& _typeIn) const
 			// stack: ref new_length data_pos new_size delete_end
 			_context << Instruction::SWAP2 << Instruction::ADD;
 			// stack: ref new_length delete_end delete_start
-			if (_type.isByteArray() || _type.baseType()->storageBytes() < 32)
+			if (_type.storageStride() < 32)
 				ArrayUtils(_context).clearStorageLoop(make_shared<IntegerType>(256));
 			else
 				ArrayUtils(_context).clearStorageLoop(_type.baseType());
@@ -931,8 +934,11 @@ void ArrayUtils::clearStorageLoop(TypePointer const& _type) const
 			eth::AssemblyItem loopStart = _context.appendJumpToNew();
 			_context << loopStart;
 			// check for loop condition
-			_context << Instruction::DUP1 << Instruction::DUP3
-					   << Instruction::GT << Instruction::ISZERO;
+			_context <<
+				Instruction::DUP1 <<
+				Instruction::DUP3 <<
+				Instruction::GT <<
+				Instruction::ISZERO;
 			eth::AssemblyItem zeroLoopEnd = _context.newTag();
 			_context.appendConditionalJumpTo(zeroLoopEnd);
 			// delete
@@ -1108,8 +1114,6 @@ void ArrayUtils::accessIndex(ArrayType const& _arrayType, bool _doBoundsCheck) c
 		m_context << endTag;
 		break;
 	}
-	default:
-		solAssert(false, "");
 	}
 }
 

@@ -1,15 +1,12 @@
 contract C {
     function f() public {
-        address addr;
+        address payable addr;
         uint balance = addr.balance;
-        bool callRet = addr.call();
-        bool callcodeRet = addr.callcode();
-        bool delegatecallRet = addr.delegatecall();
+        (bool callSuc,) = addr.call("");
+        (bool delegatecallSuc,) = addr.delegatecall("");
         bool sendRet = addr.send(1);
         addr.transfer(1);
-        callRet; callcodeRet; delegatecallRet; sendRet;
+        balance; callSuc; delegatecallSuc; sendRet;
     }
 }
 // ----
-// Warning: (161-174): "callcode" has been deprecated in favour of "delegatecall".
-// Warning: (69-81): Unused local variable.

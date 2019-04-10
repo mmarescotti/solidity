@@ -31,17 +31,14 @@
 
 using namespace std;
 using namespace langutil;
-
-namespace dev
-{
-namespace solidity
-{
+using namespace dev;
+using namespace dev::eth;
+using namespace dev::solidity;
 
 unsigned const CompilerUtils::dataStartOffset = 4;
 size_t const CompilerUtils::freeMemoryPointer = 64;
 size_t const CompilerUtils::zeroPointer = CompilerUtils::freeMemoryPointer + 32;
 size_t const CompilerUtils::generalPurposeMemoryStart = CompilerUtils::zeroPointer + 32;
-unsigned const CompilerUtils::identityContractAddress = 4;
 
 static_assert(CompilerUtils::freeMemoryPointer >= 64, "Free memory pointer must not overlap with scratch area.");
 static_assert(CompilerUtils::zeroPointer >= CompilerUtils::freeMemoryPointer + 32, "Zero pointer must not overlap with free memory pointer.");
@@ -95,6 +92,53 @@ void CompilerUtils::revertWithStringData(Type const& _argumentType)
 	abiEncode({_argumentType.shared_from_this()}, {make_shared<ArrayType>(DataLocation::Memory, true)});
 	toSizeAfterFreeMemoryPointer();
 	m_context << Instruction::REVERT;
+}
+
+void CompilerUtils::accessCalldataTail(Type const& _type)
+{
+	solAssert(_type.dataStoredIn(DataLocation::CallData), "");
+
+	unsigned int baseEncodedSize = _type.calldataEncodedSize();
+	solAssert(baseEncodedSize > 1, "");
+
+	// returns the absolute offset of the tail in "base_ref"
+	m_context.appendInlineAssembly(Whiskers(R"({
+		let rel_offset_of_tail := calldataload(ptr_to_tail)
+		if iszero(slt(rel_offset_of_tail, sub(sub(calldatasize(), base_ref), sub(<neededLength>, 1)))) { revert(0, 0) }
+		base_ref := add(base_ref, rel_offset_of_tail)
+	})")("neededLength", toCompactHexWithPrefix(baseEncodedSize)).render(), {"base_ref", "ptr_to_tail"});
+	// stack layout: <absolute_offset_of_tail> <garbage>
+
+	if (!_type.isDynamicallySized())
+	{
+		m_context << Instruction::POP;
+		// stack layout: <absolute_offset_of_tail>
+		solAssert(
+			_type.category() == Type::Category::Struct ||
+			_type.category() == Type::Category::Array,
+			"Invalid dynamically encoded base type on tail access."
+		);
+	}
+	else
+	{
+		auto const* arrayType = dynamic_cast<ArrayType const*>(&_type);
+		solAssert(!!arrayType, "Invalid dynamically sized type.");
+		unsigned int calldataStride = arrayType->calldataStride();
+		solAssert(calldataStride > 0, "");
+
+		// returns the absolute offset of the tail in "base_ref"
+		// and the length of the tail in "length"
+		m_context.appendInlineAssembly(
+			Whiskers(R"({
+				length := calldataload(base_ref)
+				base_ref := add(base_ref, 0x20)
+				if gt(length, 0xffffffffffffffff) { revert(0, 0) }
+				if sgt(base_ref, sub(calldatasize(), mul(length, <calldataStride>))) { revert(0, 0) }
+			})")("calldataStride", toCompactHexWithPrefix(calldataStride)).render(),
+			{"base_ref", "length"}
+		);
+		// stack layout: <absolute_offset_of_tail> <length>
+	}
 }
 
 unsigned CompilerUtils::loadFromMemory(
@@ -943,25 +987,42 @@ void CompilerUtils::convertType(
 			switch (typeOnStack.location())
 			{
 			case DataLocation::Storage:
-				// stack: <source ref>
-				allocateMemory(typeOnStack.memorySize());
-				m_context << Instruction::SWAP1 << Instruction::DUP2;
-				// stack: <memory ptr> <source ref> <memory ptr>
-				for (auto const& member: typeOnStack.members(nullptr))
-				{
-					if (!member.type->canLiveOutsideStorage())
-						continue;
-					pair<u256, unsigned> const& offsets = typeOnStack.storageOffsetsOfMember(member.name);
-					m_context << offsets.first << Instruction::DUP3 << Instruction::ADD;
-					m_context << u256(offsets.second);
-					StorageItem(m_context, *member.type).retrieveValue(SourceLocation(), true);
-					TypePointer targetMemberType = targetType.memberType(member.name);
-					solAssert(!!targetMemberType, "Member not found in target type.");
-					convertType(*member.type, *targetMemberType, true);
-					storeInMemoryDynamic(*targetMemberType, true);
-				}
-				m_context << Instruction::POP << Instruction::POP;
+			{
+				auto conversionImpl = [
+					typeOnStack = dynamic_pointer_cast<StructType const>(_typeOnStack.shared_from_this()),
+					targetType = dynamic_pointer_cast<StructType const>(targetType.shared_from_this())
+				](CompilerContext& _context) {
+					CompilerUtils utils(_context);
+					// stack: <source ref>
+					utils.allocateMemory(typeOnStack->memorySize());
+					_context << Instruction::SWAP1 << Instruction::DUP2;
+					// stack: <memory ptr> <source ref> <memory ptr>
+					for (auto const& member: typeOnStack->members(nullptr))
+					{
+						if (!member.type->canLiveOutsideStorage())
+							continue;
+						pair<u256, unsigned> const& offsets = typeOnStack->storageOffsetsOfMember(member.name);
+						_context << offsets.first << Instruction::DUP3 << Instruction::ADD;
+						_context << u256(offsets.second);
+						StorageItem(_context, *member.type).retrieveValue(SourceLocation(), true);
+						TypePointer targetMemberType = targetType->memberType(member.name);
+						solAssert(!!targetMemberType, "Member not found in target type.");
+						utils.convertType(*member.type, *targetMemberType, true);
+						utils.storeInMemoryDynamic(*targetMemberType, true);
+					}
+					_context << Instruction::POP << Instruction::POP;
+				};
+				if (typeOnStack.recursive())
+					m_context.callLowLevelFunction(
+						"$convertRecursiveArrayStorageToMemory_" + typeOnStack.identifier() + "_to_" + targetType.identifier(),
+						1,
+						1,
+						conversionImpl
+					);
+				else
+					conversionImpl(m_context);
 				break;
+			}
 			case DataLocation::CallData:
 			{
 				solUnimplementedAssert(!typeOnStack.isDynamicallyEncoded(), "");
@@ -1367,7 +1428,4 @@ unsigned CompilerUtils::prepareMemoryStore(Type const& _type, bool _padToWords)
 		leftShiftNumberOnStack((32 - numBytes) * 8);
 
 	return numBytes;
-}
-
-}
 }

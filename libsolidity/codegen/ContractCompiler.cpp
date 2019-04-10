@@ -39,6 +39,7 @@
 using namespace std;
 using namespace dev;
 using namespace langutil;
+using namespace dev::eth;
 using namespace dev::solidity;
 
 namespace
@@ -720,7 +721,9 @@ bool ContractCompiler::visit(InlineAssembly const& _inlineAssembly)
 		*_inlineAssembly.annotation().analysisInfo,
 		*m_context.assemblyPtr(),
 		m_context.evmVersion(),
-		identifierAccess
+		identifierAccess,
+		false,
+		m_optimiserSettings.optimizeStackAllocation
 	);
 	m_context.setStackOffset(startStackHeight);
 	return false;
@@ -983,7 +986,7 @@ void ContractCompiler::appendMissingFunctions()
 			{},
 			abiFunctions.second,
 			true,
-			m_optimiserSettings.runYulOptimiser
+			m_optimiserSettings
 		);
 }
 

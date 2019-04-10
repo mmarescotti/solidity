@@ -71,15 +71,15 @@ Running the compiler tests
 ==========================
 
 The ``./scripts/tests.sh`` script executes most Solidity tests and
-runs ``aleth`` automatically if it is in the path, but does not download it,
+runs ``aleth`` automatically if it is in the path. The script does not download it,
 so you need to install it first. Please read on for the details.
 
-Solidity includes different types of tests, most of them bundled into the ``soltest``
-application. Some of them require the ``aleth`` client in testing mode, others require ``libz3``.
+Solidity includes different types of tests, most of them bundled into the `C++ Boost Test Framework <https://www.boost.org/doc/libs/1_69_0/libs/test/doc/html/index.html>`_ application ``soltest``.
+Some of them require the ``aleth`` client in testing mode, others require ``libz3``.
 
 To run a basic set of tests that require neither ``aleth`` nor ``libz3``, run
 ``./scripts/soltest.sh --no-ipc --no-smt``. This script runs ``./build/test/soltest``
-internally.
+internally. ``./build/test/soltest --help`` has extensive help on all of the options available. See especially `run_test <https://www.boost.org/doc/libs/1_69_0/libs/test/doc/html/boost_test/utf_reference/rt_param_reference/run_test.html>`_ to list specific unit tests, and `report-level <https://www.boost.org/doc/libs/1_69_0/libs/test/doc/html/boost_test/utf_reference/rt_param_reference/report_level.html>`_ give a more detailed report.
 
 .. note ::
 
@@ -404,4 +404,15 @@ Common Terms
 Code Examples
 -------------
 
-* Ensure that all code examples begin with a ``pragma`` version that spans the largest where the contract code is valid. For example ``pragma solidity >=0.4.0 <0.6.0;``.
+A CI process tests all code block formatted code examples that begin with ``pragma solidity``, ``contract``, ``library``
+or ``interface`` using the ``./test/cmdlineTests.sh`` script when you create a PR. If you are adding new code examples,
+ensure they work and pass tests before creating the PR.
+
+Ensure that all code examples begin with a ``pragma`` version that spans the largest where the contract code is valid.
+For example ``pragma solidity >=0.4.0 <0.7.0;``.
+
+Running Documentation Tests
+---------------------------
+
+Make sure your contributions pass our documentation tests by running ``./scripts/docs.sh`` that installs dependencies
+needed for documentation and checks for any problems such as broken links or syntax issues.

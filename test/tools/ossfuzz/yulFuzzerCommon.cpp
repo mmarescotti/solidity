@@ -23,16 +23,10 @@ using namespace yul::test::yul_fuzzer;
 void yulFuzzerUtil::interpret(ostream& _os, shared_ptr<yul::Block> _ast)
 {
 	InterpreterState state;
-	state.maxTraceSize = 10000;
+	state.maxTraceSize = 75;
+	state.maxSteps = 100;
 	Interpreter interpreter(state);
-	try
-	{
-		interpreter(*_ast);
-	}
-	catch (InterpreterTerminated const&)
-	{
-	}
-
+	interpreter(*_ast);
 	_os << "Trace:" << endl;
 	for (auto const& line: interpreter.trace())
 		_os << "  " << line << endl;

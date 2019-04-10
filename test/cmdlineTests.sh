@@ -125,6 +125,10 @@ function test_solc_behaviour()
         sed -i -e '/^Warning: This is a pre-release compiler version, please do not use it in production./d' "$stderr_path"
         sed -i -e 's/ Consider adding "pragma .*$//' "$stderr_path"
     fi
+    # Remove path to cpp file
+    sed -i -e 's/^\(Exception while assembling:\).*/\1/' "$stderr_path"
+    # Remove exception class name.
+    sed -i -e 's/^\(Dynamic exception type:\).*/\1/' "$stderr_path"
 
     if [[ $exitCode -ne "$exit_code_expected" ]]
     then
@@ -339,7 +343,7 @@ printTask "Testing assemble, yul, strict-assembly and optimize..."
     # while it results in empty binary representation with optimizations turned on.
     test_solc_assembly_output "{ let x:u256 := 0:u256 }" "{ let x:u256 := 0:u256 }" "--yul"
     test_solc_assembly_output "{ let x := 0 }" "{ let x := 0 }" "--strict-assembly"
-    test_solc_assembly_output "{ let x := 0 }" "{ }" "--strict-assembly --optimize"
+    test_solc_assembly_output "{ let x := 0 }" "{ { } }" "--strict-assembly --optimize"
 )
 
 
@@ -388,26 +392,9 @@ SOLTMPDIR=$(mktemp -d)
     cd "$SOLTMPDIR"
     "$REPO_ROOT"/scripts/isolate_tests.py "$REPO_ROOT"/test/
     "$REPO_ROOT"/scripts/isolate_tests.py "$REPO_ROOT"/docs/ docs
-    for f in *.sol
-    do
-        set +e
-        "$REPO_ROOT"/build/test/tools/solfuzzer --quiet < "$f"
-        if [ $? -ne 0 ]
-        then
-            printError "Fuzzer failed on:"
-            cat "$f"
-            exit 1
-        fi
 
-        "$REPO_ROOT"/build/test/tools/solfuzzer --without-optimizer --quiet < "$f"
-        if [ $? -ne 0 ]
-        then
-            printError "Fuzzer (without optimizer) failed on:"
-            cat "$f"
-            exit 1
-        fi
-        set -e
-    done
+    echo *.sol | xargs -P 4 -n 50 "$REPO_ROOT"/build/test/tools/solfuzzer --quiet --input-files
+    echo *.sol | xargs -P 4 -n 50 "$REPO_ROOT"/build/test/tools/solfuzzer --without-optimizer --quiet --input-files
 )
 rm -rf "$SOLTMPDIR"
 

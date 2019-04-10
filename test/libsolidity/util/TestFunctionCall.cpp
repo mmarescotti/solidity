@@ -48,7 +48,11 @@ string TestFunctionCall::format(string const& _linePrefix, bool const _renderRes
 		if (!m_call.arguments.rawBytes().empty())
 		{
 			string output = formatRawParameters(m_call.arguments.parameters, _linePrefix);
-			_stream << colon << output;
+			_stream << colon;
+			if (_singleLine)
+				_stream << ws;
+			_stream << output;
+
 		}
 
 		/// Formats comments on the function parameters and the arrow taking
@@ -76,13 +80,19 @@ string TestFunctionCall::format(string const& _linePrefix, bool const _renderRes
 		{
 			bytes output = m_call.expectations.rawBytes();
 			bool const isFailure = m_call.expectations.failure;
-			result = isFailure ? failure : formatBytesParameters(output, m_call.expectations.result);
+			result = isFailure ?
+				failure :
+				formatRawParameters(m_call.expectations.result);
 		}
 		else
 		{
 			bytes output = m_rawBytes;
 			bool const isFailure = m_failure;
-			result = isFailure ? failure : formatBytesParameters(output, m_call.expectations.result);
+			result = isFailure ?
+				failure :
+				matchesExpectation() ?
+					formatRawParameters(m_call.expectations.result) :
+					formatBytesParameters(output, m_call.expectations.result);
 		}
 		AnsiColorized(_stream, highlight, {dev::formatting::RED_BACKGROUND}) << result;
 
@@ -106,8 +116,6 @@ string TestFunctionCall::format(string const& _linePrefix, bool const _renderRes
 		formatOutput(true);
 	else
 		formatOutput(false);
-//	_stream << endl;
-
 	return _stream.str();
 }
 
@@ -116,13 +124,21 @@ string TestFunctionCall::formatBytesParameters(bytes const& _bytes, dev::solidit
 	stringstream resultStream;
 	if (_bytes.empty())
 		return {};
+	auto sizeFold = [](size_t const _a, Parameter const& _b) { return _a + _b.abiType.size; };
+	size_t encodingSize = std::accumulate(_params.begin(), _params.end(), size_t{0}, sizeFold);
+
+	soltestAssert(
+		encodingSize == _bytes.size(),
+		"Encoding does not match byte range: the call returned " +
+		to_string(_bytes.size()) + " bytes, but " +
+		to_string(encodingSize) + " bytes were expected."
+	);
+
 	auto it = _bytes.begin();
 	for (auto const& param: _params)
 	{
 		long offset = static_cast<long>(param.abiType.size);
 		auto offsetIter = it + offset;
-		soltestAssert(offsetIter <= _bytes.end(), "Byte range can not be extended past the end of given bytes.");
-
 		bytes byteRange{it, offsetIter};
 		switch (param.abiType.type)
 		{
@@ -131,14 +147,12 @@ string TestFunctionCall::formatBytesParameters(bytes const& _bytes, dev::solidit
 			// be signed. If an unsigned was detected in the expectations,
 			// but the actual result returned a signed, it would be formatted
 			// incorrectly.
-			soltestAssert(param.abiType.align == ABIType::AlignRight, "Unsigned decimals must be right-aligned.");
 			if (*byteRange.begin() & 0x80)
 				resultStream << u2s(fromBigEndian<u256>(byteRange));
 			else
 				resultStream << fromBigEndian<u256>(byteRange);
 			break;
 		case ABIType::SignedDec:
-			soltestAssert(param.abiType.align == ABIType::AlignRight, "Signed decimals must be right-aligned.");
 			if (*byteRange.begin() & 0x80)
 				resultStream << u2s(fromBigEndian<u256>(byteRange));
 			else
@@ -146,20 +160,20 @@ string TestFunctionCall::formatBytesParameters(bytes const& _bytes, dev::solidit
 			break;
 		case ABIType::Boolean:
 		{
-			soltestAssert(param.abiType.align == ABIType::AlignRight, "Booleans must be right-aligned.");
 			u256 result = fromBigEndian<u256>(byteRange);
 			if (result == 0)
 				resultStream << "false";
-			else
+			else if (result == 1)
 				resultStream << "true";
+			else
+				resultStream << result;
 			break;
 		}
 		case ABIType::Hex:
-			soltestAssert(param.abiType.align == ABIType::AlignLeft, "Hex numbers must be left-aligned.");
-			byteRange.erase(
-				std::remove(byteRange.begin(), byteRange.end(), 0), byteRange.end()
-			);
 			resultStream << toHex(byteRange, HexPrefix::Add);
+			break;
+		case ABIType::HexString:
+			resultStream << "hex\"" << toHex(byteRange) << "\"";
 			break;
 		case ABIType::Failure:
 			break;
@@ -170,7 +184,6 @@ string TestFunctionCall::formatBytesParameters(bytes const& _bytes, dev::solidit
 		if (it != _bytes.end() && !(param.abiType.type == ABIType::None))
 			resultStream << ", ";
 	}
-	soltestAssert(it == _bytes.end(), "Parameter encoding too short for the given byte range.");
 	return resultStream.str();
 }
 
@@ -180,10 +193,10 @@ string TestFunctionCall::formatRawParameters(dev::solidity::test::ParameterList 
 	for (auto const& param: _params)
 	{
 		if (param.format.newline)
-			resultStream << endl << _linePrefix << "//";
-		resultStream << " " << param.rawString;
+			resultStream << endl << _linePrefix << "// ";
+		resultStream << param.rawString;
 		if (&param != &_params.back())
-			resultStream << ",";
+			resultStream << ", ";
 	}
 	return resultStream.str();
 }

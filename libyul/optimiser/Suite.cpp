@@ -23,6 +23,7 @@
 #include <libyul/optimiser/Disambiguator.h>
 #include <libyul/optimiser/VarDeclInitializer.h>
 #include <libyul/optimiser/BlockFlattener.h>
+#include <libyul/optimiser/DeadCodeEliminator.h>
 #include <libyul/optimiser/FunctionGrouper.h>
 #include <libyul/optimiser/FunctionHoister.h>
 #include <libyul/optimiser/EquivalentFunctionCombiner.h>
@@ -41,6 +42,7 @@
 #include <libyul/optimiser/StructuralSimplifier.h>
 #include <libyul/optimiser/RedundantAssignEliminator.h>
 #include <libyul/optimiser/VarNameCleaner.h>
+#include <libyul/optimiser/Metrics.h>
 #include <libyul/AsmAnalysis.h>
 #include <libyul/AsmAnalysisInfo.h>
 #include <libyul/AsmData.h>
@@ -58,6 +60,7 @@ void OptimiserSuite::run(
 	shared_ptr<Dialect> const& _dialect,
 	Block& _ast,
 	AsmAnalysisInfo const& _analysisInfo,
+	bool _optimizeStackAllocation,
 	set<YulString> const& _externallyUsedIdentifiers
 )
 {
@@ -68,6 +71,7 @@ void OptimiserSuite::run(
 	VarDeclInitializer{}(ast);
 	FunctionHoister{}(ast);
 	BlockFlattener{}(ast);
+	DeadCodeEliminator{}(ast);
 	FunctionGrouper{}(ast);
 	EquivalentFunctionCombiner::run(ast);
 	UnusedPruner::runUntilStabilised(*_dialect, ast, reservedIdentifiers);
@@ -80,8 +84,16 @@ void OptimiserSuite::run(
 
 	NameDispenser dispenser{*_dialect, ast};
 
-	for (size_t i = 0; i < 4; i++)
+	size_t codeSize = 0;
+	for (size_t rounds = 0; rounds < 12; ++rounds)
 	{
+		{
+			size_t newSize = CodeSize::codeSizeIncludingFunctions(ast);
+			if (newSize == codeSize)
+				break;
+			codeSize = newSize;
+		}
+
 		{
 			// Turn into SSA and simplify
 			ExpressionSplitter{*_dialect, dispenser}(ast);
@@ -97,6 +109,7 @@ void OptimiserSuite::run(
 			// still in SSA, perform structural simplification
 			StructuralSimplifier{*_dialect}(ast);
 			BlockFlattener{}(ast);
+			DeadCodeEliminator{}(ast);
 			UnusedPruner::runUntilStabilised(*_dialect, ast, reservedIdentifiers);
 		}
 		{
@@ -148,6 +161,7 @@ void OptimiserSuite::run(
 			ExpressionSimplifier::run(*_dialect, ast);
 			StructuralSimplifier{*_dialect}(ast);
 			BlockFlattener{}(ast);
+			DeadCodeEliminator{}(ast);
 			CommonSubexpressionEliminator{*_dialect}(ast);
 			SSATransform::run(ast, dispenser);
 			RedundantAssignEliminator::run(*_dialect, ast);
@@ -175,10 +189,16 @@ void OptimiserSuite::run(
 	Rematerialiser::run(*_dialect, ast);
 	UnusedPruner::runUntilStabilised(*_dialect, ast, reservedIdentifiers);
 
+	// This is a tuning parameter, but actually just prevents infinite loops.
+	size_t stackCompressorMaxIterations = 16;
 	FunctionGrouper{}(ast);
-	StackCompressor::run(_dialect, ast);
+	// We ignore the return value because we will get a much better error
+	// message once we perform code generation.
+	StackCompressor::run(_dialect, ast, _optimizeStackAllocation, stackCompressorMaxIterations);
 	BlockFlattener{}(ast);
+	DeadCodeEliminator{}(ast);
 
+	FunctionGrouper{}(ast);
 	VarNameCleaner{ast, *_dialect, reservedIdentifiers}(ast);
 	yul::AsmAnalyzer::analyzeStrictAssertCorrect(_dialect, ast);
 

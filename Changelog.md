@@ -1,23 +1,119 @@
-### 0.5.5 (unreleased)
+### 0.5.8 (unreleased)
+
+Important Bugfixes:
+ * Yul Optimizer: Fix SSA transform for multi-assignments.
+
 
 Language Features:
- * Add support for accessors for mappings with string or byte key types
+ * Code Generation: Implement copying recursive structs from storage to memory.
+ * ABIEncoderV2: Implement encoding of calldata arrays and structs.
+
+
+Compiler Features:
+ * ABI Decoder: Raise a runtime error on dirty inputs when using the experimental decoder.
+ * SMTChecker: Support arithmetic compound assignment operators.
+ * SMTChecker: Support unary increment and decrement for array and mapping access.
+ * Optimizer: Add rule for shifts by constants larger than 255 for Constantinople.
+ * Optimizer: Add rule to simplify certain ANDs and SHL combinations
+ * Yul: Adds break and continue keywords to for-loop syntax.
+ * Yul Optimizer: Adds steps for detecting and removing of dead code.
+
+
+Bugfixes:
+ * SMTChecker: Implement Boolean short-circuiting.
+ * SMTChecker: SSA control-flow did not take into account state variables that were modified inside inlined functions that were called inside branches.
+ * Yul: Properly register functions and disallow shadowing between function variables and variables in the outside scope.
+
+
+
+
+### 0.5.7 (2019-03-26)
+
+Important Bugfixes:
+ * ABIEncoderV2: Fix bugs related to loading short value types from storage when encoding an array or struct from storage.
+ * ABIEncoderV2: Fix buffer overflow problem when encoding packed array from storage.
+ * Optimizer: Fix wrong ordering of arguments in byte optimization rule for constants.
+
+
+Language Features:
+ * Function calls with named arguments now work with overloaded functions.
+
+
+Compiler Features:
+ * Inline Assembly: Issue error when using ``callvalue()`` inside nonpayable function (in the same way that ``msg.value`` already does).
+ * Standard JSON Interface: Support "Yul" as input language.
+ * SMTChecker: Show callstack together with model if applicable.
+ * SMTChecker: Support modifiers.
+ * Yul Optimizer: Enable stack allocation optimization by default if Yul optimizer is active (disable in ``yulDetails``).
+
+
+Bugfixes:
+ * Code Generator: Defensively pad memory for ``type(Contract).name`` to multiples of 32.
+ * Type System: Detect and disallow internal function pointers as parameters for public/external library functions, even when they are nested/wrapped in structs, arrays or other types.
+ * Yul Optimizer: Properly determine whether a variable can be eliminated during stack compression pass.
+ * Yul / Inline Assembly Parser: Disallow more than one case statement with the same label inside a switch based on the label's integer value.
+
+
+Build System:
+ * Install scripts: Fix boost repository URL for CentOS 6.
+ * Soltest: Fix hex string update in soltest.
+
+
+### 0.5.6 (2019-03-13)
+
+Important Bugfixes:
+ * Yul Optimizer: Fix visitation order bug for the structural simplifier.
+ * Optimizer: Fix overflow in optimization rule that simplifies double shift by constant.
+
+Language Features:
+ * Allow calldata arrays with dynamically encoded base types with ABIEncoderV2.
+ * Allow dynamically encoded calldata structs with ABIEncoderV2.
+
+
+Compiler Features:
+ * Optimizer: Add rules for ``lt``-comparisons with constants.
+ * Peephole Optimizer: Remove double ``iszero`` before ``jumpi``.
+ * SMTChecker: Support enums without typecast.
+ * SMTChecker: Support one-dimensional arrays.
+ * Type Checker: Provide better error messages for some literal conversions.
+ * Yul Optimizer: Add rule to remove empty default switch cases.
+ * Yul Optimizer: Add rule to remove empty cases if no default exists.
+ * Yul Optimizer: Add rule to replace a switch with no cases with ``pop(expression)``.
+
+
+Bugfixes:
+ * JSON ABI: Json description of library ABIs no longer contains functions with internal types like storage structs.
+ * SMTChecker: Fix internal compiler error when contract contains too large rational number.
+ * Type system: Detect if a contract's base uses types that require the experimental abi encoder while the contract still uses the old encoder.
+
+
+Build System:
+ * Soltest: Add support for arrays in function signatures.
+ * Soltest: Add support for struct arrays in function signatures.
+ * Soltest: Add support for left-aligned, unpadded hex string literals.
+
+### 0.5.5 (2019-03-05)
+
+Language Features:
+ * Add support for getters of mappings with ``string`` or ``bytes`` key types.
  * Meta programming: Provide access to the name of contracts via ``type(C).name``.
 
 
 Compiler Features:
  * Support ``petersburg`` as ``evmVersion`` and set as default.
+ * Commandline Interface: Option to activate the experimental yul optimizer using ``-optimize-yul``.
  * Inline Assembly: Consider ``extcodehash`` as part of Constantinople.
  * Inline Assembly: Instructions unavailable to the currently configured EVM are errors now.
  * SMTChecker: Do not report underflow/overflow if they always revert. This removes false positives when using ``SafeMath``.
- * Standard JSON Interface: Allow retrieving metadata without triggering compilation.
+ * Standard JSON Interface: Allow retrieving metadata without triggering bytecode generation.
+ * Standard JSON Interface: Provide fine-grained control over the optimizer via the settings.
  * Static Analyzer: Warn about expressions with custom types when they have no effect.
  * Optimizer: Add new rules with constants including ``LT``, ``GT``, ``AND`` and ``BYTE``.
  * Optimizer: Add rule for shifts with constants for Constantinople.
  * Optimizer: Combine multiple shifts with constant shift-by values into one.
  * Optimizer: Do not mask with 160-bits after ``CREATE`` and ``CREATE2`` as they are guaranteed to return an address or 0.
  * Optimizer: Support shifts in the constant optimiser for Constantinople.
- * Yul Optimizer: Add rule to replace switch statements with const expr. with matching case body
+ * Yul Optimizer: Add rule to replace switch statements with literals by matching case body.
 
 
 Bugfixes:
@@ -27,10 +123,10 @@ Bugfixes:
  * ABIEncoderV2: Fix invalid signature for events containing structs emitted in libraries.
  * Inline Assembly: Proper error message for missing variables.
  * Optimizer: Fix internal error related to unused tag removal across assemblies. This never generated any invalid code.
- * SMTChecker: Fixed crash when used with fixed-sized arrays.
+ * SMTChecker: Fix crash related to statically-sized arrays.
  * TypeChecker: Fix internal error and disallow index access on contracts and libraries.
  * Yul: Properly detect name clashes with functions before their declaration.
- * Yul: Take builtin functions into account in the compilability checker.
+ * Yul: Take built-in functions into account in the compilability checker.
  * Yul Optimizer: Properly take reassignments to variables in sub-expressions into account when replacing in the ExpressionSimplifier.
 
 

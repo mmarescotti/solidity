@@ -36,18 +36,24 @@ using namespace boost::unit_test;
 namespace fs = boost::filesystem;
 
 
-SemanticTest::SemanticTest(string const& _filename, string const& _ipcPath):
-	SolidityExecutionFramework(_ipcPath)
+SemanticTest::SemanticTest(string const& _filename, string const& _ipcPath, langutil::EVMVersion _evmVersion):
+	SolidityExecutionFramework(_ipcPath, _evmVersion)
 {
 	ifstream file(_filename);
 	soltestAssert(file, "Cannot open test contract: \"" + _filename + "\".");
 	file.exceptions(ios::badbit);
 
-	m_source = parseSource(file);
+	m_source = parseSourceAndSettings(file);
+	if (m_settings.count("compileViaYul"))
+	{
+		m_validatedSettings["compileViaYul"] = m_settings["compileViaYul"];
+		m_compileViaYul = true;
+		m_settings.erase("compileViaYul");
+	}
 	parseExpectations(file);
 }
 
-bool SemanticTest::run(ostream& _stream, string const& _linePrefix, bool const _formatted)
+bool SemanticTest::run(ostream& _stream, string const& _linePrefix, bool _formatted)
 {
 	soltestAssert(deploy("", 0, bytes()), "Failed to deploy contract.");
 
@@ -75,19 +81,19 @@ bool SemanticTest::run(ostream& _stream, string const& _linePrefix, bool const _
 		AnsiColorized(_stream, _formatted, {BOLD, CYAN}) << _linePrefix << "Expected result:" << endl;
 		for (auto const& test: m_tests)
 			_stream << test.format(_linePrefix, false, _formatted) << endl;
-
+		_stream << endl;
 		AnsiColorized(_stream, _formatted, {BOLD, CYAN}) << _linePrefix << "Obtained result:" << endl;
 		for (auto const& test: m_tests)
 			_stream << test.format(_linePrefix, true, _formatted) << endl;
 
-		AnsiColorized(_stream, _formatted, {BOLD, RED}) << _linePrefix
+		AnsiColorized(_stream, _formatted, {BOLD, RED}) << _linePrefix << endl << _linePrefix
 			<< "Attention: Updates on the test will apply the detected format displayed." << endl;
 		return false;
 	}
 	return true;
 }
 
-void SemanticTest::printSource(ostream& _stream, string const& _linePrefix, bool const) const
+void SemanticTest::printSource(ostream& _stream, string const& _linePrefix, bool) const
 {
 	stringstream stream(m_source);
 	string line;
@@ -105,7 +111,7 @@ void SemanticTest::parseExpectations(istream& _stream)
 {
 	TestFileParser parser{_stream};
 	auto functionCalls = parser.parseFunctionCalls();
-	move(functionCalls.begin(), functionCalls.end(), back_inserter(m_tests));
+	std::move(functionCalls.begin(), functionCalls.end(), back_inserter(m_tests));
 }
 
 bool SemanticTest::deploy(string const& _contractName, u256 const& _value, bytes const& _arguments)

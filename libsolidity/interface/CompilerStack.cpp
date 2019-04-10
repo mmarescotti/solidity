@@ -46,6 +46,8 @@
 #include <libsolidity/interface/Version.h>
 #include <libsolidity/parsing/Parser.h>
 
+#include <libsolidity/codegen/ir/IRGenerator.h>
+
 #include <libyul/YulString.h>
 
 #include <liblangutil/Scanner.h>
@@ -109,7 +111,7 @@ void CompilerStack::setLibraries(std::map<std::string, h160> const& _libraries)
 
 void CompilerStack::setOptimiserSettings(bool _optimize, unsigned _runs)
 {
-	OptimiserSettings settings = _optimize ? OptimiserSettings::enabled() : OptimiserSettings::minimal();
+	OptimiserSettings settings = _optimize ? OptimiserSettings::standard() : OptimiserSettings::minimal();
 	settings.expectedExecutionsPerDeployment = _runs;
 	setOptimiserSettings(std::move(settings));
 }
@@ -135,24 +137,21 @@ void CompilerStack::addSMTLib2Response(h256 const& _hash, string const& _respons
 	m_smtlib2Responses[_hash] = _response;
 }
 
-void CompilerStack::reset(bool _keepSources)
+void CompilerStack::reset(bool _keepSettings)
 {
-	if (_keepSources)
-	{
-		m_stackState = SourcesSet;
-		for (auto sourcePair: m_sources)
-			sourcePair.second.reset();
-	}
-	else
-	{
-		m_stackState = Empty;
-		m_sources.clear();
-	}
+	m_stackState = Empty;
+	m_sources.clear();
 	m_smtlib2Responses.clear();
 	m_unhandledSMTLib2Queries.clear();
-	m_libraries.clear();
-	m_evmVersion = langutil::EVMVersion();
-	m_optimiserSettings = OptimiserSettings::minimal();
+	if (!_keepSettings)
+	{
+		m_remappings.clear();
+		m_libraries.clear();
+		m_evmVersion = langutil::EVMVersion();
+		m_generateIR = false;
+		m_optimiserSettings = OptimiserSettings::minimal();
+		m_metadataLiteralSources = false;
+	}
 	m_globalContext.reset();
 	m_scopes.clear();
 	m_sourceOrder.clear();
@@ -160,14 +159,15 @@ void CompilerStack::reset(bool _keepSources)
 	m_errorReporter.clear();
 }
 
-bool CompilerStack::addSource(string const& _name, string const& _content, bool _isLibrary)
+void CompilerStack::setSources(StringMap const& _sources)
 {
-	bool existed = m_sources.count(_name) != 0;
-	reset(true);
-	m_sources[_name].scanner = make_shared<Scanner>(CharStream(_content, _name));
-	m_sources[_name].isLibrary = _isLibrary;
+	if (m_stackState == SourcesSet)
+		BOOST_THROW_EXCEPTION(CompilerError() << errinfo_comment("Cannot change sources once set."));
+	if (m_stackState != Empty)
+		BOOST_THROW_EXCEPTION(CompilerError() << errinfo_comment("Must set sources before parsing."));
+	for (auto const& source: _sources)
+		m_sources[source.first].scanner = make_shared<Scanner>(CharStream(/*content*/source.second, /*name*/source.first));
 	m_stackState = SourcesSet;
-	return existed;
 }
 
 bool CompilerStack::parse()
@@ -179,6 +179,12 @@ bool CompilerStack::parse()
 
 	if (SemVerVersion{string(VersionString)}.isPrerelease())
 		m_errorReporter.warning("This is a pre-release compiler version, please do not use it in production.");
+
+	if (m_optimiserSettings.runYulOptimiser)
+		m_errorReporter.warning(
+			"The Yul optimiser is still experimental. "
+			"Do not use it in production unless correctness of generated code is verified with extensive tests."
+		);
 
 	vector<string> sourcesToParse;
 	for (auto const& s: m_sources)
@@ -384,7 +390,11 @@ bool CompilerStack::compile()
 		for (ASTPointer<ASTNode> const& node: source->ast->nodes())
 			if (auto contract = dynamic_cast<ContractDefinition const*>(node.get()))
 				if (isRequestedContract(*contract))
+				{
 					compileContract(*contract, otherCompilers);
+					if (m_generateIR)
+						generateIR(*contract);
+				}
 	m_stackState = CompilationSuccessful;
 	this->link();
 	return true;
@@ -491,6 +501,22 @@ std::string const CompilerStack::filesystemFriendlyName(string const& _contractN
 	}
 	// If no collision, return the contract's name
 	return matchContract.contract->name();
+}
+
+string const& CompilerStack::yulIR(string const& _contractName) const
+{
+	if (m_stackState != CompilationSuccessful)
+		BOOST_THROW_EXCEPTION(CompilerError() << errinfo_comment("Compilation was not successful."));
+
+	return contract(_contractName).yulIR;
+}
+
+string const& CompilerStack::yulIROptimized(string const& _contractName) const
+{
+	if (m_stackState != CompilationSuccessful)
+		BOOST_THROW_EXCEPTION(CompilerError() << errinfo_comment("Compilation was not successful."));
+
+	return contract(_contractName).yulIROptimized;
 }
 
 eth::LinkerObject const& CompilerStack::object(string const& _contractName) const
@@ -828,8 +854,7 @@ void CompilerStack::resolveImports()
 	};
 
 	for (auto const& sourcePair: m_sources)
-		if (!sourcePair.second.isLibrary)
-			toposort(&sourcePair.second);
+		toposort(&sourcePair.second);
 
 	swap(m_sourceOrder, sourceOrder);
 }
@@ -898,6 +923,24 @@ void CompilerStack::compileContract(
 	}
 
 	_otherCompilers[compiledContract.contract] = compiler;
+}
+
+void CompilerStack::generateIR(ContractDefinition const& _contract)
+{
+	solAssert(m_stackState >= AnalysisSuccessful, "");
+
+	if (!_contract.canBeDeployed())
+		return;
+
+	Contract& compiledContract = m_contracts.at(_contract.fullyQualifiedName());
+	if (!compiledContract.yulIR.empty())
+		return;
+
+	for (auto const* dependency: _contract.annotation().contractDependencies)
+		generateIR(*dependency);
+
+	IRGenerator generator(m_evmVersion, m_optimiserSettings);
+	tie(compiledContract.yulIR, compiledContract.yulIROptimized) = generator.run(_contract);
 }
 
 CompilerStack::Contract const& CompilerStack::contract(string const& _contractName) const
@@ -980,7 +1023,7 @@ string CompilerStack::createMetadata(Contract const& _contract) const
 	settingsWithoutRuns.expectedExecutionsPerDeployment = OptimiserSettings::minimal().expectedExecutionsPerDeployment;
 	if (settingsWithoutRuns == OptimiserSettings::minimal())
 		meta["settings"]["optimizer"]["enabled"] = false;
-	else if (settingsWithoutRuns == OptimiserSettings::enabled())
+	else if (settingsWithoutRuns == OptimiserSettings::standard())
 		meta["settings"]["optimizer"]["enabled"] = true;
 	else
 	{
@@ -993,7 +1036,11 @@ string CompilerStack::createMetadata(Contract const& _contract) const
 		details["cse"] = m_optimiserSettings.runCSE;
 		details["constantOptimizer"] = m_optimiserSettings.runConstantOptimiser;
 		details["yul"] = m_optimiserSettings.runYulOptimiser;
-		details["yulDetails"] = Json::objectValue;
+		if (m_optimiserSettings.runYulOptimiser)
+		{
+			details["yulDetails"] = Json::objectValue;
+			details["yulDetails"]["stackAllocation"] = m_optimiserSettings.optimizeStackAllocation;
+		}
 
 		meta["settings"]["optimizer"]["details"] = std::move(details);
 	}
@@ -1020,29 +1067,96 @@ string CompilerStack::createMetadata(Contract const& _contract) const
 	return jsonCompactPrint(meta);
 }
 
+class MetadataCBOREncoder
+{
+public:
+	void pushBytes(string const& key, bytes const& value)
+	{
+		m_entryCount++;
+		pushTextString(key);
+		pushByteString(value);
+	}
+
+	void pushString(string const& key, string const& value)
+	{
+		m_entryCount++;
+		pushTextString(key);
+		pushTextString(value);
+	}
+
+	void pushBool(string const& key, bool value)
+	{
+		m_entryCount++;
+		pushTextString(key);
+		pushBool(value);
+	}
+
+	bytes serialise() const
+	{
+		unsigned size = m_data.size() + 1;
+		solAssert(size <= 0xffff, "Metadata too large.");
+		solAssert(m_entryCount <= 0x1f, "Too many map entries.");
+
+		// CBOR fixed-length map
+		bytes ret{static_cast<unsigned char>(0xa0 + m_entryCount)};
+		// The already encoded key-value pairs
+		ret += m_data;
+		// 16-bit big endian length
+		ret += toCompactBigEndian(size, 2);
+		return ret;
+	}
+
+private:
+	void pushTextString(string const& key)
+	{
+		unsigned length = key.size();
+		if (length < 24)
+		{
+			m_data += bytes{static_cast<unsigned char>(0x60 + length)};
+			m_data += key;
+		}
+		else if (length <= 256)
+		{
+			m_data += bytes{0x78, static_cast<unsigned char>(length)};
+			m_data += key;
+		}
+		else
+			solAssert(false, "Text string too large.");
+	}
+	void pushByteString(bytes const& key)
+	{
+		unsigned length = key.size();
+		if (length < 24)
+		{
+			m_data += bytes{static_cast<unsigned char>(0x40 + length)};
+			m_data += key;
+		}
+		else if (length <= 256)
+		{
+			m_data += bytes{0x58, static_cast<unsigned char>(length)};
+			m_data += key;
+		}
+		else
+			solAssert(false, "Byte string too large.");
+	}
+	void pushBool(bool value)
+	{
+		if (value)
+			m_data += bytes{0xf5};
+		else
+			m_data += bytes{0xf4};
+	}
+	unsigned m_entryCount = 0;
+	bytes m_data;
+};
+
 bytes CompilerStack::createCBORMetadata(string const& _metadata, bool _experimentalMode)
 {
-	bytes cborEncodedHash =
-		// CBOR-encoding of the key "bzzr0"
-		bytes{0x65, 'b', 'z', 'z', 'r', '0'}+
-		// CBOR-encoding of the hash
-		bytes{0x58, 0x20} + dev::swarmHash(_metadata).asBytes();
-	bytes cborEncodedMetadata;
+	MetadataCBOREncoder encoder;
+	encoder.pushBytes("bzzr0", dev::swarmHash(_metadata).asBytes());
 	if (_experimentalMode)
-		cborEncodedMetadata =
-			// CBOR-encoding of {"bzzr0": dev::swarmHash(metadata), "experimental": true}
-			bytes{0xa2} +
-			cborEncodedHash +
-			bytes{0x6c, 'e', 'x', 'p', 'e', 'r', 'i', 'm', 'e', 'n', 't', 'a', 'l', 0xf5};
-	else
-		cborEncodedMetadata =
-			// CBOR-encoding of {"bzzr0": dev::swarmHash(metadata)}
-			bytes{0xa1} +
-			cborEncodedHash;
-	solAssert(cborEncodedMetadata.size() <= 0xffff, "Metadata too large");
-	// 16-bit big endian length
-	cborEncodedMetadata += toCompactBigEndian(cborEncodedMetadata.size(), 2);
-	return cborEncodedMetadata;
+		encoder.pushBool("experimental", true);
+	return encoder.serialise();
 }
 
 string CompilerStack::computeSourceMapping(eth::AssemblyItems const& _items) const

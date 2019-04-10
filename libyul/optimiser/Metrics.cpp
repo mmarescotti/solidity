@@ -52,9 +52,16 @@ size_t CodeSize::codeSize(Block const& _block)
 	return cs.m_size;
 }
 
+size_t CodeSize::codeSizeIncludingFunctions(Block const& _block)
+{
+	CodeSize cs(false);
+	cs(_block);
+	return cs.m_size;
+}
+
 void CodeSize::visit(Statement const& _statement)
 {
-	if (_statement.type() == typeid(FunctionDefinition))
+	if (_statement.type() == typeid(FunctionDefinition) && m_ignoreFunctions)
 		return;
 	else if (!(
 		_statement.type() == typeid(Block) ||
@@ -92,12 +99,11 @@ void CodeCost::operator()(FunctionCall const& _funCall)
 
 void CodeCost::operator()(FunctionalInstruction const& _instr)
 {
-	using namespace dev::solidity;
 	yulAssert(m_cost >= 1, "Should assign cost one in visit(Expression).");
-	Tier gasPriceTier = instructionInfo(_instr.instruction).gasPriceTier;
-	if (gasPriceTier < Tier::VeryLow)
+	dev::eth::Tier gasPriceTier = dev::eth::instructionInfo(_instr.instruction).gasPriceTier;
+	if (gasPriceTier < dev::eth::Tier::VeryLow)
 		m_cost -= 1;
-	else if (gasPriceTier < Tier::High)
+	else if (gasPriceTier < dev::eth::Tier::High)
 		m_cost += 1;
 	else
 		m_cost += 49;

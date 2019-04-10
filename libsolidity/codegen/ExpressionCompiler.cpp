@@ -39,11 +39,10 @@
 
 using namespace std;
 using namespace langutil;
+using namespace dev;
+using namespace dev::eth;
+using namespace dev::solidity;
 
-namespace dev
-{
-namespace solidity
-{
 
 void ExpressionCompiler::compile(Expression const& _expression)
 {
@@ -1394,7 +1393,7 @@ bool ExpressionCompiler::visit(MemberAccess const& _memberAccess)
 		{
 			TypePointer arg = dynamic_cast<MagicType const&>(*_memberAccess.expression().annotation().type).typeArgument();
 			ContractDefinition const& contract = dynamic_cast<ContractType const&>(*arg).contractDefinition();
-			utils().allocateMemory(contract.name().length() + 32);
+			utils().allocateMemory(((contract.name().length() + 31) / 32) * 32 + 32);
 			// store string length
 			m_context << u256(contract.name().length()) << Instruction::DUP2 << Instruction::MSTORE;
 			// adjust pointer
@@ -1407,6 +1406,7 @@ bool ExpressionCompiler::visit(MemberAccess const& _memberAccess)
 	case Type::Category::Struct:
 	{
 		StructType const& type = dynamic_cast<StructType const&>(*_memberAccess.expression().annotation().type);
+		TypePointer const& memberType = _memberAccess.annotation().type;
 		switch (type.location())
 		{
 		case DataLocation::Storage:
@@ -1419,25 +1419,40 @@ bool ExpressionCompiler::visit(MemberAccess const& _memberAccess)
 		case DataLocation::Memory:
 		{
 			m_context << type.memoryOffsetOfMember(member) << Instruction::ADD;
-			setLValue<MemoryItem>(_memberAccess, *_memberAccess.annotation().type);
+			setLValue<MemoryItem>(_memberAccess, *memberType);
 			break;
 		}
 		case DataLocation::CallData:
 		{
-			solUnimplementedAssert(!type.isDynamicallyEncoded(), "");
-			m_context << type.calldataOffsetOfMember(member) << Instruction::ADD;
-			// For non-value types the calldata offset is returned directly.
-			if (_memberAccess.annotation().type->isValueType())
+			if (_memberAccess.annotation().type->isDynamicallyEncoded())
 			{
-				solAssert(_memberAccess.annotation().type->calldataEncodedSize(false) > 0, "");
-				CompilerUtils(m_context).loadFromMemoryDynamic(*_memberAccess.annotation().type, true, true, false);
+				m_context << Instruction::DUP1;
+				m_context << type.calldataOffsetOfMember(member) << Instruction::ADD;
+				CompilerUtils(m_context).accessCalldataTail(*memberType);
 			}
 			else
-				solAssert(
-					_memberAccess.annotation().type->category() == Type::Category::Array ||
-					_memberAccess.annotation().type->category() == Type::Category::Struct,
-					""
-				);
+			{
+				m_context << type.calldataOffsetOfMember(member) << Instruction::ADD;
+				// For non-value types the calldata offset is returned directly.
+				if (memberType->isValueType())
+				{
+					solAssert(memberType->calldataEncodedSize() > 0, "");
+					solAssert(memberType->storageBytes() <= 32, "");
+					if (memberType->storageBytes() < 32 && m_context.experimentalFeatureActive(ExperimentalFeature::ABIEncoderV2))
+					{
+						m_context << u256(32);
+						CompilerUtils(m_context).abiDecodeV2({memberType}, false);
+					}
+					else
+						CompilerUtils(m_context).loadFromMemoryDynamic(*memberType, true, true, false);
+				}
+				else
+					solAssert(
+						memberType->category() == Type::Category::Array ||
+						memberType->category() == Type::Category::Struct,
+						""
+					);
+			}
 			break;
 		}
 		default:
@@ -1551,10 +1566,10 @@ bool ExpressionCompiler::visit(IndexAccess const& _indexAccess)
 		_indexAccess.indexExpression()->accept(*this);
 		utils().convertType(*_indexAccess.indexExpression()->annotation().type, IntegerType::uint256(), true);
 		// stack layout: <base_ref> [<length>] <index>
-		ArrayUtils(m_context).accessIndex(arrayType);
 		switch (arrayType.location())
 		{
 		case DataLocation::Storage:
+			ArrayUtils(m_context).accessIndex(arrayType);
 			if (arrayType.isByteArray())
 			{
 				solAssert(!arrayType.isString(), "Index access to string is not allowed.");
@@ -1564,18 +1579,49 @@ bool ExpressionCompiler::visit(IndexAccess const& _indexAccess)
 				setLValueToStorageItem(_indexAccess);
 			break;
 		case DataLocation::Memory:
+			ArrayUtils(m_context).accessIndex(arrayType);
 			setLValue<MemoryItem>(_indexAccess, *_indexAccess.annotation().type, !arrayType.isByteArray());
 			break;
 		case DataLocation::CallData:
-			//@todo if we implement this, the value in calldata has to be added to the base offset
-			solUnimplementedAssert(!arrayType.baseType()->isDynamicallySized(), "Nested arrays not yet implemented.");
-			if (arrayType.baseType()->isValueType())
-				CompilerUtils(m_context).loadFromMemoryDynamic(
-					*arrayType.baseType(),
-					true,
-					!arrayType.isByteArray(),
-					false
-				);
+			if (arrayType.baseType()->isDynamicallyEncoded())
+			{
+				// stack layout: <base_ref> <length> <index>
+				ArrayUtils(m_context).accessIndex(arrayType, true, true);
+				// stack layout: <base_ref> <ptr_to_tail>
+
+				CompilerUtils(m_context).accessCalldataTail(*arrayType.baseType());
+				// stack layout: <tail_ref> [length]
+			}
+			else
+			{
+				ArrayUtils(m_context).accessIndex(arrayType, true);
+				if (arrayType.baseType()->isValueType())
+				{
+					solAssert(arrayType.baseType()->storageBytes() <= 32, "");
+					if (
+						!arrayType.isByteArray() &&
+						arrayType.baseType()->storageBytes() < 32 &&
+						m_context.experimentalFeatureActive(ExperimentalFeature::ABIEncoderV2)
+					)
+					{
+						m_context << u256(32);
+						CompilerUtils(m_context).abiDecodeV2({arrayType.baseType()}, false);
+					}
+					else
+						CompilerUtils(m_context).loadFromMemoryDynamic(
+							*arrayType.baseType(),
+							true,
+							!arrayType.isByteArray(),
+							false
+						);
+				}
+				else
+					solAssert(
+						arrayType.baseType()->category() == Type::Category::Struct ||
+						arrayType.baseType()->category() == Type::Category::Array,
+						"Invalid statically sized non-value base type on array access."
+					);
+			}
 			break;
 		}
 	}
@@ -2242,7 +2288,4 @@ bool ExpressionCompiler::cleanupNeededForOp(Type::Category _type, Token _op)
 CompilerUtils ExpressionCompiler::utils()
 {
 	return CompilerUtils(m_context);
-}
-
-}
 }
